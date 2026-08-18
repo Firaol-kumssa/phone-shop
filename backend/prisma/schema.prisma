@@ -1,0 +1,219 @@
+// Phone Shop Management System — database schema (Blueprint Part 5)
+// One row per physical, IMEI-tracked phone; transactions use header + line-item tables.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  Admin
+  SalesStaff @map("Sales Staff")
+
+  @@map("user_role")
+}
+
+enum UserStatus {
+  Active
+  Inactive
+
+  @@map("user_status")
+}
+
+enum PhoneStatus {
+  InStock  @map("In Stock")
+  Reserved
+  Sold
+  Returned
+
+  @@map("phone_status")
+}
+
+enum PaymentMethod {
+  Cash
+  Card
+  MobileMoney  @map("Mobile Money")
+  BankTransfer @map("Bank Transfer")
+
+  @@map("payment_method")
+}
+
+// ─── Tables ─────────────────────────────────────────────────────────────────
+
+/// System operators (Owner/Admin, Sales Staff) who can log in.
+model User {
+  userId       Int        @id @default(autoincrement()) @map("user_id")
+  fullName     String     @map("full_name") @db.VarChar(100)
+  username     String     @unique @db.VarChar(50)
+  email        String?    @unique @db.VarChar(100)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  role         UserRole   @default(SalesStaff)
+  status       UserStatus @default(Active)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime?  @updatedAt @map("updated_at")
+
+  purchases Purchase[]
+  sales     Sale[]
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+model Supplier {
+  supplierId  Int      @id @default(autoincrement()) @map("supplier_id")
+  name        String   @db.VarChar(150)
+  phoneNumber String?  @map("phone_number") @db.VarChar(20)
+  email       String?  @db.VarChar(100)
+  address     String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  purchases Purchase[]
+  phones    Phone[]
+
+  @@map("suppliers")
+}
+
+/// Header record for one delivery/invoice from a supplier.
+model Purchase {
+  purchaseId    Int      @id @default(autoincrement()) @map("purchase_id")
+  supplierId    Int      @map("supplier_id")
+  invoiceNumber String?  @map("invoice_number") @db.VarChar(50)
+  purchaseDate  DateTime @map("purchase_date") @db.Date
+  totalAmount   Decimal  @map("total_amount") @db.Decimal(12, 2)
+  createdBy     Int      @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  supplier Supplier       @relation(fields: [supplierId], references: [supplierId])
+  creator  User           @relation(fields: [createdBy], references: [userId])
+  items    PurchaseItem[]
+
+  @@map("purchases")
+}
+
+/// One row per physical phone received in a purchase.
+/// Authoritative financial record of the original transaction.
+model PurchaseItem {
+  purchaseItemId Int      @id @default(autoincrement()) @map("purchase_item_id")
+  purchaseId     Int      @map("purchase_id")
+  phoneId        Int      @unique @map("phone_id")
+  purchasePrice  Decimal  @map("purchase_price") @db.Decimal(10, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  purchase Purchase @relation(fields: [purchaseId], references: [purchaseId])
+  phone    Phone    @relation(fields: [phoneId], references: [phoneId])
+
+  @@map("purchase_items")
+}
+
+/// Core inventory table — one row per physical, IMEI-tracked device.
+/// purchasePrice is a deliberate denormalized copy of PurchaseItem.purchasePrice
+/// for fast stock-valuation reads (Blueprint Part 5.2 design note).
+model Phone {
+  phoneId       Int         @id @default(autoincrement()) @map("phone_id")
+  imei          String      @unique @db.VarChar(20)
+  brand         String      @db.VarChar(50)
+  model         String      @db.VarChar(100)
+  storage       String?     @db.VarChar(20)
+  color         String?     @db.VarChar(30)
+  purchasePrice Decimal     @map("purchase_price") @db.Decimal(10, 2)
+  sellingPrice  Decimal     @map("selling_price") @db.Decimal(10, 2)
+  status        PhoneStatus @default(InStock)
+  supplierId    Int?        @map("supplier_id")
+  addedDate     DateTime    @default(now()) @map("added_date")
+  updatedAt     DateTime?   @updatedAt @map("updated_at")
+
+  supplier     Supplier?     @relation(fields: [supplierId], references: [supplierId])
+  purchaseItem PurchaseItem?
+  saleItem     SaleItem?
+
+  @@map("phones")
+}
+
+model Customer {
+  customerId  Int      @id @default(autoincrement()) @map("customer_id")
+  fullName    String   @map("full_name") @db.VarChar(100)
+  phoneNumber String?  @unique @map("phone_number") @db.VarChar(20)
+  email       String?  @db.VarChar(100)
+  address     String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  sales Sale[]
+
+  @@map("customers")
+}
+
+/// Non-serialized accessories (headsets, cases, etc.) tracked by quantity, not IMEI.
+model Product {
+  productId       Int       @id @default(autoincrement()) @map("product_id")
+  name            String    @db.VarChar(150)
+  category        String    @db.VarChar(50)
+  brand           String?   @db.VarChar(50)
+  costPrice       Decimal   @map("cost_price") @db.Decimal(10, 2)
+  sellingPrice    Decimal   @map("selling_price") @db.Decimal(10, 2)
+  quantityInStock Int       @default(0) @map("quantity_in_stock")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime? @updatedAt @map("updated_at")
+
+  saleItems SaleItem[]
+
+  @@map("products")
+}
+
+/// Header record for one checkout/receipt (can contain multiple phones).
+/// customerId is nullable — walk-in sales are allowed.
+model Sale {
+  saleId        Int           @id @default(autoincrement()) @map("sale_id")
+  customerId    Int?          @map("customer_id")
+  saleDate      DateTime      @default(now()) @map("sale_date")
+  totalAmount   Decimal       @map("total_amount") @db.Decimal(12, 2)
+  paymentMethod PaymentMethod @map("payment_method")
+  soldBy        Int           @map("sold_by")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  customer Customer?  @relation(fields: [customerId], references: [customerId])
+  seller   User       @relation(fields: [soldBy], references: [userId])
+  items    SaleItem[]
+
+  @@map("sales")
+}
+
+/// One row per line sold: either a serialized phone (phoneId, quantity = 1)
+/// or a quantity of a product (productId + quantity). sellingPrice is the unit
+/// price; profit is the whole line's profit, captured at sale time.
+model SaleItem {
+  saleItemId   Int      @id @default(autoincrement()) @map("sale_item_id")
+  saleId       Int      @map("sale_id")
+  phoneId      Int?     @unique @map("phone_id")
+  productId    Int?     @map("product_id")
+  quantity     Int      @default(1)
+  sellingPrice Decimal  @map("selling_price") @db.Decimal(10, 2)
+  profit       Decimal  @db.Decimal(10, 2)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  sale    Sale     @relation(fields: [saleId], references: [saleId])
+  phone   Phone?   @relation(fields: [phoneId], references: [phoneId])
+  product Product? @relation(fields: [productId], references: [productId])
+
+  @@map("sale_items")
+}
+
+/// Tracks sensitive actions for accountability (Blueprint Part 11).
+model AuditLog {
+  logId         Int      @id @default(autoincrement()) @map("log_id")
+  userId        Int?     @map("user_id")
+  action        String   @db.VarChar(100)
+  tableAffected String?  @map("table_affected") @db.VarChar(50)
+  recordId      String?  @map("record_id") @db.VarChar(50)
+  details       String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [userId])
+
+  @@map("audit_logs")
+}
