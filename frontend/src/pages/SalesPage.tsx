@@ -14,9 +14,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { usePhones } from '@/hooks/usePhones';
+import { useProducts } from '@/hooks/useProducts';
 import { useCreateCustomer, useCustomers } from '@/hooks/useCustomers';
 import { useCreateSale } from '@/hooks/useSales';
-import type { Customer, PaymentMethod, Phone, Sale } from '@/services/types';
+import type { Customer, PaymentMethod, Phone, Product, Sale } from '@/services/types';
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'Cash', label: 'Cash' },
@@ -32,6 +33,7 @@ const money = (value: string | number) => Number(value).toFixed(2);
 export function SalesPage() {
   const navigate = useNavigate();
   const { data: phones, isLoading } = usePhones('InStock');
+  const { data: products, isLoading: productsLoading } = useProducts();
   const { data: customers } = useCustomers();
   const createCustomer = useCreateCustomer();
   const createSale = useCreateSale();
@@ -39,13 +41,23 @@ export function SalesPage() {
   const [search, setSearch] = useState('');
   // phoneId → editable selling price (pre-filled from the listed price)
   const [selected, setSelected] = useState<Map<number, string>>(new Map());
+  const [productSearch, setProductSearch] = useState('');
+  // productId → editable quantity + selling price (pre-filled from the listed price)
+  const [selectedProducts, setSelectedProducts] = useState<
+    Map<number, { quantity: string; price: string }>
+  >(new Map());
   const [customerMode, setCustomerMode] = useState<CustomerMode>('walkin');
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [customerSearch, setCustomerSearch] = useState('');
   const [newCustomer, setNewCustomer] = useState({ fullName: '', phoneNumber: '' });
   const [payment, setPayment] = useState<PaymentMethod>('Cash');
   const [formError, setFormError] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<{ sale: Sale; phones: Phone[]; customer: Customer | null } | null>(null);
+  const [receipt, setReceipt] = useState<{
+    sale: Sale;
+    phones: Phone[];
+    products: Product[];
+    customer: Customer | null;
+  } | null>(null);
 
   const filteredPhones = useMemo(() => {
     if (!phones) return [];
@@ -55,6 +67,16 @@ export function SalesPage() {
       [p.imei, p.brand, p.model].some((field) => field.toLowerCase().includes(term)),
     );
   }, [phones, search]);
+
+  const filteredProducts = useMemo(() => {
+    if (!products) return [];
+    const inStock = products.filter((p) => p.quantityInStock > 0 || selectedProducts.has(p.productId));
+    const term = productSearch.trim().toLowerCase();
+    if (!term) return inStock;
+    return inStock.filter((p) =>
+      [p.name, p.category, p.brand ?? ''].some((field) => field.toLowerCase().includes(term)),
+    );
+  }, [products, productSearch, selectedProducts]);
 
   const filteredCustomers = useMemo(() => {
     if (!customers) return [];
@@ -67,7 +89,13 @@ export function SalesPage() {
     return matches.slice(0, 5);
   }, [customers, customerSearch]);
 
-  const total = [...selected.values()].reduce((sum, price) => sum + (Number(price) || 0), 0);
+  const phonesTotal = [...selected.values()].reduce((sum, price) => sum + (Number(price) || 0), 0);
+  const productsTotal = [...selectedProducts.values()].reduce(
+    (sum, { quantity, price }) => sum + (Number(quantity) || 0) * (Number(price) || 0),
+    0,
+  );
+  const total = phonesTotal + productsTotal;
+  const itemCount = selected.size + selectedProducts.size;
 
   function togglePhone(phone: Phone) {
     setSelected((prev) => {
@@ -85,15 +113,51 @@ export function SalesPage() {
     setSelected((prev) => new Map(prev).set(phoneId, value));
   }
 
+  function toggleProduct(product: Product) {
+    setSelectedProducts((prev) => {
+      const next = new Map(prev);
+      if (next.has(product.productId)) {
+        next.delete(product.productId);
+      } else {
+        next.set(product.productId, { quantity: '1', price: money(product.sellingPrice) });
+      }
+      return next;
+    });
+  }
+
+  function setProductField(productId: number, field: 'quantity' | 'price', value: string) {
+    setSelectedProducts((prev) => {
+      const current = prev.get(productId);
+      if (!current) return prev;
+      return new Map(prev).set(productId, { ...current, [field]: value });
+    });
+  }
+
   async function submitSale() {
     setFormError(null);
-    if (selected.size === 0) {
-      setFormError('Select at least one phone.');
+    if (selected.size === 0 && selectedProducts.size === 0) {
+      setFormError('Select at least one phone or product.');
       return;
     }
     for (const [, price] of selected) {
       if (!(Number(price) > 0)) {
         setFormError('Every selected phone needs a positive selling price.');
+        return;
+      }
+    }
+    for (const [productId, { quantity, price }] of selectedProducts) {
+      const product = products?.find((p) => p.productId === productId);
+      const qty = Number(quantity);
+      if (!Number.isInteger(qty) || qty < 1) {
+        setFormError('Every selected product needs a whole quantity of at least 1.');
+        return;
+      }
+      if (product && qty > product.quantityInStock) {
+        setFormError(`Only ${product.quantityInStock} × ${product.name} in stock.`);
+        return;
+      }
+      if (!(Number(price) > 0)) {
+        setFormError('Every selected product needs a positive selling price.');
         return;
       }
     }
@@ -118,16 +182,28 @@ export function SalesPage() {
       }
 
       const soldPhones = (phones ?? []).filter((p) => selected.has(p.phoneId));
+      const soldProducts = (products ?? []).filter((p) => selectedProducts.has(p.productId));
       const sale = await createSale.mutateAsync({
         customerId: saleCustomer?.customerId,
         paymentMethod: payment,
-        items: [...selected.entries()].map(([phoneId, price]) => ({
-          phoneId,
-          sellingPrice: Number(price),
-        })),
+        items:
+          selected.size > 0
+            ? [...selected.entries()].map(([phoneId, price]) => ({
+                phoneId,
+                sellingPrice: Number(price),
+              }))
+            : undefined,
+        productItems:
+          selectedProducts.size > 0
+            ? [...selectedProducts.entries()].map(([productId, { quantity, price }]) => ({
+                productId,
+                quantity: Number(quantity),
+                sellingPrice: Number(price),
+              }))
+            : undefined,
       });
 
-      setReceipt({ sale, phones: soldPhones, customer: saleCustomer });
+      setReceipt({ sale, phones: soldPhones, products: soldProducts, customer: saleCustomer });
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'Sale failed');
     }
@@ -150,6 +226,24 @@ export function SalesPage() {
             <Table>
               <TableBody>
                 {(receipt.sale.items ?? []).map((item) => {
+                  if (item.productId != null) {
+                    const product = receipt.products.find((p) => p.productId === item.productId);
+                    return (
+                      <TableRow key={item.saleItemId}>
+                        <TableCell>
+                          <div className="font-medium">
+                            {product ? product.name : `Product #${item.productId}`}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {item.quantity} × {money(item.sellingPrice)}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {money(item.quantity * Number(item.sellingPrice))}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
                   const phone = receipt.phones.find((p) => p.phoneId === item.phoneId);
                   return (
                     <TableRow key={item.saleItemId}>
@@ -185,6 +279,7 @@ export function SalesPage() {
       <h1 className="text-2xl font-semibold">Record Sale</h1>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <div className="space-y-4">
         <Card>
           <CardHeader>
             <CardTitle>1. Select phones ({selected.size} selected)</CardTitle>
@@ -255,10 +350,102 @@ export function SalesPage() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>2. Add products ({selectedProducts.size} selected)</CardTitle>
+            <CardDescription>Accessories and other stock sold by quantity.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Input
+              placeholder="Search products by name, category, or brand…"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+            />
+            {productsLoading && <p className="text-sm text-muted-foreground">Loading products…</p>}
+            {!productsLoading && filteredProducts.length === 0 && (
+              <p className="text-sm text-muted-foreground">No in-stock products match.</p>
+            )}
+            {filteredProducts.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8" />
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Listed</TableHead>
+                    <TableHead className="w-20 text-right">Qty</TableHead>
+                    <TableHead className="w-32 text-right">Sell for</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredProducts.map((product) => {
+                    const entry = selectedProducts.get(product.productId);
+                    return (
+                      <TableRow key={product.productId}>
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-primary"
+                            checked={!!entry}
+                            onChange={() => toggleProduct(product)}
+                            aria-label={`Select ${product.name}`}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{product.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {product.category}
+                            {product.brand ? ` · ${product.brand}` : ''} · {product.quantityInStock}{' '}
+                            in stock
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">{money(product.sellingPrice)}</TableCell>
+                        <TableCell className="text-right">
+                          {entry ? (
+                            <Input
+                              type="number"
+                              min="1"
+                              step="1"
+                              max={product.quantityInStock}
+                              className="h-8 text-right"
+                              value={entry.quantity}
+                              onChange={(e) =>
+                                setProductField(product.productId, 'quantity', e.target.value)
+                              }
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {entry ? (
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="h-8 text-right"
+                              value={entry.price}
+                              onChange={(e) =>
+                                setProductField(product.productId, 'price', e.target.value)
+                              }
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+        </div>
+
         <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>2. Customer</CardTitle>
+              <CardTitle>3. Customer</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex gap-1">
@@ -337,7 +524,7 @@ export function SalesPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>3. Payment & confirm</CardTitle>
+              <CardTitle>4. Payment & confirm</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-1">
@@ -354,7 +541,7 @@ export function SalesPage() {
               </div>
               <div className="flex items-center justify-between border-t pt-3">
                 <span className="text-sm text-muted-foreground">
-                  Total ({selected.size} phone{selected.size === 1 ? '' : 's'})
+                  Total ({itemCount} item{itemCount === 1 ? '' : 's'})
                 </span>
                 <Badge variant="secondary" className="text-base">
                   {money(total)}
