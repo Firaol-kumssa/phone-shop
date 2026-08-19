@@ -19,3 +19,7 @@ export function registerUser(payload: RegisterUserPayload): Promise<StaffUser> {
 export function deactivateUser(userId: number): Promise<StaffUser> {
   return api<StaffUser>(`/auth/users/${userId}/deactivate`, { method: 'PATCH' });
 }
+
+export function reactivateUser(userId: number): Promise<StaffUser> {
+  return api<StaffUser>(`/auth/users/${userId}/reactivate`, { method: 'PATCH' });
+}

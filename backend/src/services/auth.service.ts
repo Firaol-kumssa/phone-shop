@@ -112,6 +112,28 @@ export class AuthService {
     return this.sanitize(updated);
   }
 
+  async reactivateUser(userId: number, actorId: number): Promise<SafeUser> {
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      throw new NotFoundException(`User ${userId} not found`);
+    }
+    if (user.status === UserStatus.Active) {
+      throw new ConflictException(`${user.username} is already active`);
+    }
+
+    const updated = await this.userRepository.updateStatus(userId, UserStatus.Active);
+
+    await this.auditLogs.record({
+      userId: actorId,
+      action: 'USER_REACTIVATED',
+      tableAffected: 'users',
+      recordId: String(userId),
+      details: { username: user.username, role: user.role },
+    });
+
+    return this.sanitize(updated);
+  }
+
   async listUsers(): Promise<SafeUser[]> {
     const users = await this.userRepository.findAll();
     return users.map((user) => this.sanitize(user));

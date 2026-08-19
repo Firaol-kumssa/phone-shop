@@ -56,4 +56,14 @@ export class AuthController {
   ): Promise<SafeUser> {
     return this.authService.deactivateUser(id, user.userId);
   }
+
+  @Patch('users/:id/reactivate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Admin)
+  reactivate(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<SafeUser> {
+    return this.authService.reactivateUser(id, user.userId);
+  }
 }

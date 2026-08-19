@@ -13,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useDeactivateUser, useRegisterUser, useStaff } from '@/hooks/useStaff';
+import { useDeactivateUser, useReactivateUser, useRegisterUser, useStaff } from '@/hooks/useStaff';
 import { useAuth } from '@/hooks/useAuth';
 
 const EMPTY_FORM = {
@@ -32,6 +32,7 @@ export function StaffPage() {
   const { data: staff, isLoading, isError, error } = useStaff();
   const registerUser = useRegisterUser();
   const deactivate = useDeactivateUser();
+  const reactivate = useReactivateUser();
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -80,6 +81,15 @@ export function StaffPage() {
       await deactivate.mutateAsync(userId);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Could not deactivate');
+    }
+  }
+
+  async function submitReactivate(userId: number) {
+    setActionError(null);
+    try {
+      await reactivate.mutateAsync(userId);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not reactivate');
     }
   }
 
@@ -207,7 +217,9 @@ export function StaffPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      {employee.status === 'Active' && employee.userId !== me?.userId ? (
+                      {employee.userId === me?.userId ? (
+                        <span className="text-xs text-muted-foreground">You</span>
+                      ) : employee.status === 'Active' ? (
                         <Button
                           size="sm"
                           variant="destructive"
@@ -217,9 +229,14 @@ export function StaffPage() {
                           Deactivate
                         </Button>
                       ) : (
-                        <span className="text-xs text-muted-foreground">
-                          {employee.userId === me?.userId ? 'You' : '—'}
-                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={reactivate.isPending}
+                          onClick={() => submitReactivate(employee.userId)}
+                        >
+                          Reactivate
+                        </Button>
                       )}
                     </TableCell>
                   </TableRow>
