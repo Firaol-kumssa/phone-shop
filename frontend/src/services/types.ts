@@ -7,6 +7,23 @@ export interface SessionUser {
   status: 'Active' | 'Inactive';
 }
 
+export interface StaffUser extends SessionUser {
+  phoneNumber: string | null;
+  digitalId: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface RegisterUserPayload {
+  fullName: string;
+  username: string;
+  password: string;
+  role: 'Admin' | 'SalesStaff';
+  phoneNumber?: string;
+  digitalId?: string;
+  email?: string;
+}
+
 export interface LoginResponse {
   accessToken: string;
   user: SessionUser;

@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma, User, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
@@ -35,6 +41,8 @@ export class AuthService {
         fullName: dto.fullName,
         username: dto.username,
         email: dto.email,
+        phoneNumber: dto.phoneNumber,
+        digitalId: dto.digitalId,
         passwordHash,
         role: dto.role,
       });
@@ -76,6 +84,37 @@ export class AuthService {
     const accessToken = await this.jwtService.signAsync(payload);
 
     return { accessToken, user: this.sanitize(user) };
+  }
+
+  /** Deactivation instead of deletion — accounts are never hard-deleted (Blueprint 5.1). */
+  async deactivateUser(userId: number, actorId: number): Promise<SafeUser> {
+    if (userId === actorId) {
+      throw new BadRequestException('You cannot deactivate your own account');
+    }
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      throw new NotFoundException(`User ${userId} not found`);
+    }
+    if (user.status === UserStatus.Inactive) {
+      throw new ConflictException(`${user.username} is already inactive`);
+    }
+
+    const updated = await this.userRepository.updateStatus(userId, UserStatus.Inactive);
+
+    await this.auditLogs.record({
+      userId: actorId,
+      action: 'USER_DEACTIVATED',
+      tableAffected: 'users',
+      recordId: String(userId),
+      details: { username: user.username, role: user.role },
+    });
+
+    return this.sanitize(updated);
+  }
+
+  async listUsers(): Promise<SafeUser[]> {
+    const users = await this.userRepository.findAll();
+    return users.map((user) => this.sanitize(user));
   }
 
   private sanitize(user: User): SafeUser {

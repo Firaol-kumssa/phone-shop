@@ -1,4 +1,15 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { AuthService, SafeUser } from '../services/auth.service';
 import { AuthenticatedUser, CurrentUser, JwtAuthGuard } from '../middleware/auth.middleware';
@@ -26,5 +37,23 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<SafeUser> {
     return this.authService.register(dto, user.userId);
+  }
+
+  @Get('users')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Admin)
+  listUsers(): Promise<SafeUser[]> {
+    return this.authService.listUsers();
+  }
+
+  /** Deactivate instead of delete — preserves the accountability trail. */
+  @Patch('users/:id/deactivate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Admin)
+  deactivate(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<SafeUser> {
+    return this.authService.deactivateUser(id, user.userId);
   }
 }

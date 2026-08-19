@@ -9,6 +9,7 @@ import { SalesPage } from '@/pages/SalesPage';
 import { CustomersPage } from '@/pages/CustomersPage';
 import { SuppliersPage } from '@/pages/SuppliersPage';
 import { ReportsPage } from '@/pages/ReportsPage';
+import { StaffPage } from '@/pages/StaffPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -29,6 +30,7 @@ export default function App() {
               <Route path="/customers" element={<CustomersPage />} />
               <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/staff" element={<StaffPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

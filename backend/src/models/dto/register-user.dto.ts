@@ -1,4 +1,13 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { UserRole } from '@prisma/client';
 
 export class RegisterUserDto {
@@ -16,6 +25,16 @@ export class RegisterUserDto {
   @IsEmail()
   @MaxLength(100)
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  phoneNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  digitalId?: string;
 
   // 72-byte cap is a bcrypt limitation
   @IsString()

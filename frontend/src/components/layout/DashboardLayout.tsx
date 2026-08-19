@@ -6,6 +6,7 @@ import {
   ShoppingCart,
   Smartphone,
   Truck,
+  UserCog,
   Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,8 @@ const NAV_ITEMS = [
   { to: '/reports', label: 'Reports', icon: BarChart3 },
 ];
 
+const ADMIN_NAV_ITEMS = [{ to: '/staff', label: 'Manage Staff', icon: UserCog }];
+
 export function DashboardLayout() {
   const { user, logout } = useAuth();
 
@@ -32,7 +35,8 @@ export function DashboardLayout() {
           Phone Shop
         </div>
         <nav className="flex-1 space-y-1 p-2">
-          {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+          {[...NAV_ITEMS, ...(user?.role === 'Admin' ? ADMIN_NAV_ITEMS : [])].map(
+            ({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -48,7 +52,8 @@ export function DashboardLayout() {
               <Icon className="h-4 w-4" />
               {label}
             </NavLink>
-          ))}
+            ),
+          )}
         </nav>
         <div className="border-t p-3">
           <div className="mb-2 px-1 text-sm">
