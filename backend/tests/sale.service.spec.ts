@@ -1,6 +1,6 @@
 // Business-rule tests for the Sales Module (Blueprint 9.3 / 3.2 / 8.2).
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { PaymentMethod, PhoneStatus, Prisma } from '@prisma/client';
+import { PaymentMethod, PhoneStatus, Prisma, ProductStatus } from '@prisma/client';
 import { SaleService } from '../src/services/sale.service';
 import { PhonesUnavailableError } from '../src/repositories/sale.repository';
 import { CreateSaleDto } from '../src/models/dto/create-sale.dto';
@@ -26,6 +26,7 @@ const product = (productId: number, overrides: Record<string, unknown> = {}) => 
   costPrice: decimal(5),
   sellingPrice: decimal(10),
   quantityInStock: 20,
+  status: ProductStatus.Active,
   ...overrides,
 });
 

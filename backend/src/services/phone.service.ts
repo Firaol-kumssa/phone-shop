@@ -18,7 +18,7 @@ const ALLOWED_TRANSITIONS: Partial<Record<PhoneStatus, PhoneStatus[]>> = {
 /**
  * Inventory business rules (Blueprint 3.1):
  * - IMEI must be globally unique.
- * - A phone can never be added without a supplier and purchase price.
+ * - A phone can never be added without a purchase price; supplier is optional.
  * - IMEI and purchase price are locked after creation (Admin correction flow only).
  * - Status can never be manually set to Sold — only the Sales Module does that.
  * - Phones are never hard-deleted; use status Returned instead.

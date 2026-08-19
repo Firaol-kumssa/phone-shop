@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Product } from '@prisma/client';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Product, ProductStatus } from '@prisma/client';
 import { ProductRepository } from '../repositories/product.repository';
 import { AuditLogRepository } from '../repositories/auditLog.repository';
 import { CreateProductDto } from '../models/dto/create-product.dto';
@@ -11,8 +11,8 @@ export class ProductService {
     private readonly auditLogs: AuditLogRepository,
   ) {}
 
-  listProducts(): Promise<Product[]> {
-    return this.productRepository.findAll();
+  listProducts(status?: ProductStatus): Promise<Product[]> {
+    return this.productRepository.findAll(status);
   }
 
   async createProduct(dto: CreateProductDto, userId: number): Promise<Product> {
@@ -50,6 +50,29 @@ export class ProductService {
       tableAffected: 'products',
       recordId: String(productId),
       details: { name: product.name, added: quantity, newQuantity: product.quantityInStock },
+    });
+
+    return product;
+  }
+
+  /** Soft removal (never hard-delete — past sales reference the row). */
+  async discontinue(productId: number, userId: number): Promise<Product> {
+    const existing = await this.productRepository.findById(productId);
+    if (!existing) {
+      throw new NotFoundException(`Product ${productId} not found`);
+    }
+    if (existing.status === ProductStatus.Discontinued) {
+      throw new ConflictException(`${existing.name} is already discontinued`);
+    }
+
+    const product = await this.productRepository.discontinue(productId);
+
+    await this.auditLogs.record({
+      userId,
+      action: 'PRODUCT_DISCONTINUED',
+      tableAffected: 'products',
+      recordId: String(productId),
+      details: { name: product.name, remainingStock: product.quantityInStock },
     });
 
     return product;

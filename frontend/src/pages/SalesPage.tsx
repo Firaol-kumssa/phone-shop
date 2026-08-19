@@ -17,12 +17,13 @@ import { usePhones } from '@/hooks/usePhones';
 import { useProducts } from '@/hooks/useProducts';
 import { useCreateCustomer, useCustomers } from '@/hooks/useCustomers';
 import { useCreateSale } from '@/hooks/useSales';
+import { SalesHistory } from '@/components/SalesHistory';
 import type { Customer, PaymentMethod, Phone, Product, Sale } from '@/services/types';
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'Cash', label: 'Cash' },
   { value: 'Card', label: 'Card' },
-  { value: 'MobileMoney', label: 'Mobile Money' },
+  { value: 'Telebirr', label: 'Telebirr' },
   { value: 'BankTransfer', label: 'Bank Transfer' },
 ];
 
@@ -33,7 +34,7 @@ const money = (value: string | number) => Number(value).toFixed(2);
 export function SalesPage() {
   const navigate = useNavigate();
   const { data: phones, isLoading } = usePhones('InStock');
-  const { data: products, isLoading: productsLoading } = useProducts();
+  const { data: products, isLoading: productsLoading } = useProducts('Active');
   const { data: customers } = useCustomers();
   const createCustomer = useCreateCustomer();
   const createSale = useCreateSale();
@@ -280,11 +281,11 @@ export function SalesPage() {
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>1. Select phones ({selected.size} selected)</CardTitle>
-            <CardDescription>Only In Stock phones can be sold.</CardDescription>
-          </CardHeader>
+          <Card>
+            <CardHeader>
+              <CardTitle>1. Select phones ({selected.size} selected)</CardTitle>
+              <CardDescription>Only In Stock phones can be sold.</CardDescription>
+            </CardHeader>
           <CardContent className="space-y-3">
             <Input
               placeholder="Search by IMEI, brand, or model…"
@@ -559,6 +560,8 @@ export function SalesPage() {
           </Card>
         </div>
       </div>
+
+      <SalesHistory />
     </div>
   );
 }

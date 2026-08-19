@@ -4,10 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PhoneStatus, Sale } from '@prisma/client';
+import { PhoneStatus, ProductStatus, Sale, SaleItem } from '@prisma/client';
 import {
   PhonesUnavailableError,
   ProductsUnavailableError,
+  ReturnNotPossibleError,
   SaleRepository,
 } from '../repositories/sale.repository';
 import { PhoneRepository } from '../repositories/phone.repository';
@@ -15,6 +16,7 @@ import { CustomerRepository } from '../repositories/customer.repository';
 import { ProductRepository } from '../repositories/product.repository';
 import { AuditLogRepository } from '../repositories/auditLog.repository';
 import { CreateSaleDto } from '../models/dto/create-sale.dto';
+import { ProcessReturnDto } from '../models/dto/process-return.dto';
 
 @Injectable()
 export class SaleService {
@@ -90,6 +92,12 @@ export class SaleService {
     if (missingProducts.length > 0) {
       throw new NotFoundException(`Products not found: ${missingProducts.join(', ')}`);
     }
+    const discontinued = products.filter((p) => p.status === ProductStatus.Discontinued);
+    if (discontinued.length > 0) {
+      throw new ConflictException(
+        `Discontinued products cannot be sold: ${discontinued.map((p) => p.name).join(', ')}`,
+      );
+    }
     const shortages = productLines.filter(
       (line) => productById.get(line.productId)!.quantityInStock < line.quantity,
     );
@@ -148,5 +156,155 @@ export class SaleService {
     });
 
     return sale;
+  }
+
+  /**
+   * Return/exchange per Blueprint Part 13. Plain return: restore the item and
+   * void its profit. Exchange: same transaction also sells the replacement
+   * (availability checked first). Audit-logged as RETURN_PROCESSED.
+   */
+  async processReturn(saleId: number, dto: ProcessReturnDto, userId: number): Promise<Sale> {
+    if ((dto.phoneId === undefined) === (dto.productId === undefined)) {
+      throw new BadRequestException('Specify exactly one of phoneId or productId to return');
+    }
+    if (dto.mode === 'exchange' && !dto.replacement) {
+      throw new BadRequestException('Exchange mode requires a replacement item');
+    }
+    if (dto.mode === 'return' && dto.replacement) {
+      throw new BadRequestException('Plain return cannot include a replacement');
+    }
+    if (
+      dto.replacement &&
+      (dto.replacement.phoneId === undefined) === (dto.replacement.productId === undefined)
+    ) {
+      throw new BadRequestException('Replacement needs exactly one of phoneId or productId');
+    }
+
+    const sale = await this.saleRepository.findById(saleId);
+    if (!sale) {
+      throw new NotFoundException(`Sale ${saleId} not found`);
+    }
+
+    const items = (sale as Sale & { items: SaleItem[] }).items;
+    const line =
+      dto.phoneId !== undefined
+        ? items.find((item) => item.phoneId === dto.phoneId)
+        : items.find((item) => item.productId === dto.productId && item.quantity > 0);
+    if (!line) {
+      throw new NotFoundException('That item is not on this sale (or was fully returned)');
+    }
+
+    const returnQuantity = dto.phoneId !== undefined ? 1 : (dto.quantity ?? 1);
+
+    // Pre-checks; the transaction re-verifies with conditional updates
+    if (dto.phoneId !== undefined) {
+      const phone = await this.phoneRepository.findById(dto.phoneId);
+      if (!phone || phone.status !== PhoneStatus.Sold) {
+        throw new ConflictException('Phone is not in Sold state (already returned?)');
+      }
+    } else if (line.quantity < returnQuantity) {
+      throw new ConflictException(
+        `Only ${line.quantity} unit(s) of that product remain on this sale`,
+      );
+    }
+
+    const unitPrice = Number(line.sellingPrice);
+    const refundAmount = unitPrice * returnQuantity;
+    const profitVoid =
+      dto.phoneId !== undefined
+        ? Number(line.profit)
+        : (Number(line.profit) / line.quantity) * returnQuantity;
+
+    let replacement: { phoneId?: number; productId?: number; quantity: number; sellingPrice: number; profit: number } | undefined;
+    if (dto.replacement) {
+      const replacementQuantity = dto.replacement.productId !== undefined ? (dto.replacement.quantity ?? 1) : 1;
+      if (dto.replacement.phoneId !== undefined) {
+        const phone = await this.phoneRepository.findById(dto.replacement.phoneId);
+        if (!phone) {
+          throw new NotFoundException(`Replacement phone ${dto.replacement.phoneId} not found`);
+        }
+        if (phone.status !== PhoneStatus.InStock) {
+          throw new ConflictException(`Replacement phone ${phone.imei} is not In Stock`);
+        }
+        replacement = {
+          phoneId: phone.phoneId,
+          quantity: 1,
+          sellingPrice: dto.replacement.sellingPrice,
+          profit: dto.replacement.sellingPrice - phone.purchasePrice.toNumber(),
+        };
+      } else {
+        const product = await this.productRepository.findById(dto.replacement.productId!);
+        if (!product) {
+          throw new NotFoundException(`Replacement product ${dto.replacement.productId} not found`);
+        }
+        if (product.status === ProductStatus.Discontinued) {
+          throw new ConflictException(`${product.name} is discontinued and cannot be sold`);
+        }
+        if (product.quantityInStock < replacementQuantity) {
+          throw new ConflictException(
+            `Insufficient stock: ${product.name} (${product.quantityInStock} left)`,
+          );
+        }
+        replacement = {
+          productId: product.productId,
+          quantity: replacementQuantity,
+          sellingPrice: dto.replacement.sellingPrice,
+          profit:
+            (dto.replacement.sellingPrice - product.costPrice.toNumber()) * replacementQuantity,
+        };
+      }
+    }
+
+    let updated: Sale;
+    try {
+      updated = await this.saleRepository.processReturn({
+        saleId,
+        returned: {
+          saleItemId: line.saleItemId,
+          phoneId: dto.phoneId,
+          productId: dto.productId,
+          quantity: returnQuantity,
+          refundAmount,
+          profitVoid,
+        },
+        replacement,
+      });
+    } catch (error) {
+      if (
+        error instanceof ReturnNotPossibleError ||
+        error instanceof PhonesUnavailableError ||
+        error instanceof ProductsUnavailableError
+      ) {
+        throw new ConflictException(error.message);
+      }
+      throw error;
+    }
+
+    await this.auditLogs.record({
+      userId,
+      action: 'RETURN_PROCESSED',
+      tableAffected: 'sales',
+      recordId: String(saleId),
+      details: {
+        mode: dto.mode,
+        returned: {
+          phoneId: dto.phoneId ?? null,
+          productId: dto.productId ?? null,
+          quantity: returnQuantity,
+          refundAmount,
+          profitVoided: profitVoid,
+        },
+        replacement: replacement
+          ? {
+              phoneId: replacement.phoneId ?? null,
+              productId: replacement.productId ?? null,
+              quantity: replacement.quantity,
+              sellingPrice: replacement.sellingPrice,
+            }
+          : null,
+      },
+    });
+
+    return updated;
   }
 }

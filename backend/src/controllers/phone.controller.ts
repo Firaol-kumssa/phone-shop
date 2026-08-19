@@ -36,7 +36,7 @@ export class PhoneController {
     return this.phoneService.getPhone(id);
   }
 
-  /** Manual add outside a purchase — still requires supplier + purchase price (Blueprint 3.1). */
+  /** Manual add outside a purchase — requires purchase price; supplier is optional. */
   @Post()
   create(
     @Body() dto: CreatePhoneDto,

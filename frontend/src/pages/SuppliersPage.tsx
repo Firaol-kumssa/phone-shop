@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useRecordDelivery, useSupplier, useSuppliers } from '@/hooks/useSuppliers';
+import { useRecordDelivery, useCreateSupplier, useSupplier, useSuppliers } from '@/hooks/useSuppliers';
 
 interface ItemRow {
   imei: string;
@@ -37,11 +37,18 @@ const EMPTY_ROW: ItemRow = {
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (value: string | number) => Number(value).toFixed(2);
 
+const EMPTY_SUPPLIER_FORM = { name: '', phoneNumber: '', email: '', address: '' };
+
 export function SuppliersPage() {
   const { data: suppliers, isLoading } = useSuppliers();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const supplier = useSupplier(selectedId);
   const record = useRecordDelivery();
+  const createSupplier = useCreateSupplier();
+
+  const [showSupplierForm, setShowSupplierForm] = useState(false);
+  const [supplierForm, setSupplierForm] = useState(EMPTY_SUPPLIER_FORM);
+  const [supplierFormError, setSupplierFormError] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -51,6 +58,27 @@ export function SuppliersPage() {
 
   function updateRow(index: number, patch: Partial<ItemRow>) {
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  async function submitNewSupplier() {
+    setSupplierFormError(null);
+    if (!supplierForm.name.trim()) {
+      setSupplierFormError('Supplier name is required.');
+      return;
+    }
+    try {
+      const created = await createSupplier.mutateAsync({
+        name: supplierForm.name.trim(),
+        phoneNumber: supplierForm.phoneNumber.trim() || undefined,
+        email: supplierForm.email.trim() || undefined,
+        address: supplierForm.address.trim() || undefined,
+      });
+      setSupplierForm(EMPTY_SUPPLIER_FORM);
+      setShowSupplierForm(false);
+      setSelectedId(created.supplierId);
+    } catch (error) {
+      setSupplierFormError(error instanceof Error ? error.message : 'Could not create supplier');
+    }
   }
 
   async function submitDelivery() {
@@ -100,7 +128,62 @@ export function SuppliersPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Suppliers</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Suppliers</h1>
+        <Button size="sm" onClick={() => setShowSupplierForm((v) => !v)}>
+          <Plus className="h-4 w-4" />
+          New supplier
+        </Button>
+      </div>
+
+      {showSupplierForm && (
+        <Card>
+          <CardHeader>
+            <CardTitle>New supplier</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="s-name">Name</Label>
+                <Input
+                  id="s-name"
+                  value={supplierForm.name}
+                  onChange={(e) => setSupplierForm({ ...supplierForm, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="s-phone">Phone (optional)</Label>
+                <Input
+                  id="s-phone"
+                  value={supplierForm.phoneNumber}
+                  onChange={(e) => setSupplierForm({ ...supplierForm, phoneNumber: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="s-email">Email (optional)</Label>
+                <Input
+                  id="s-email"
+                  type="email"
+                  value={supplierForm.email}
+                  onChange={(e) => setSupplierForm({ ...supplierForm, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="s-address">Address (optional)</Label>
+                <Input
+                  id="s-address"
+                  value={supplierForm.address}
+                  onChange={(e) => setSupplierForm({ ...supplierForm, address: e.target.value })}
+                />
+              </div>
+            </div>
+            {supplierFormError && <p className="text-sm text-destructive">{supplierFormError}</p>}
+            <Button disabled={createSupplier.isPending} onClick={submitNewSupplier}>
+              {createSupplier.isPending ? 'Saving…' : 'Save supplier'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_2fr]">
         <Card>

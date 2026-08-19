@@ -34,7 +34,7 @@ export class PhoneRepository {
     color?: string;
     purchasePrice: number;
     sellingPrice: number;
-    supplierId: number;
+    supplierId?: number;
   }): Promise<Phone> {
     return this.prisma.phone.create({ data });
   }

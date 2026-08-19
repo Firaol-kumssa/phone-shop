@@ -1,5 +1,10 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createSale } from '@/services/sale.service';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createSale, listSales, processReturn } from '@/services/sale.service';
+import type { ProcessReturnPayload } from '@/services/types';
+
+export function useSalesList() {
+  return useQuery({ queryKey: ['sales'], queryFn: listSales });
+}
 
 export function useCreateSale() {
   const queryClient = useQueryClient();
@@ -9,7 +14,23 @@ export function useCreateSale() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['phones'] });
       void queryClient.invalidateQueries({ queryKey: ['products'] });
+      void queryClient.invalidateQueries({ queryKey: ['sales'] });
       void queryClient.invalidateQueries({ queryKey: ['reports'] });
+    },
+  });
+}
+
+export function useProcessReturn() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ saleId, payload }: { saleId: number; payload: ProcessReturnPayload }) =>
+      processReturn(saleId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sales'] });
+      void queryClient.invalidateQueries({ queryKey: ['phones'] });
+      void queryClient.invalidateQueries({ queryKey: ['products'] });
+      void queryClient.invalidateQueries({ queryKey: ['reports'] });
+      void queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
   });
 }

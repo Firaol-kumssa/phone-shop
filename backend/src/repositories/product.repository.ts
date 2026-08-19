@@ -1,13 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { Product } from '@prisma/client';
+import { Product, ProductStatus } from '@prisma/client';
 import { PrismaService } from '../config/prisma.service';
 
 @Injectable()
 export class ProductRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(): Promise<Product[]> {
-    return this.prisma.product.findMany({ orderBy: [{ category: 'asc' }, { name: 'asc' }] });
+  findAll(status?: ProductStatus): Promise<Product[]> {
+    return this.prisma.product.findMany({
+      where: status ? { status } : undefined,
+      orderBy: [{ category: 'asc' }, { name: 'asc' }],
+    });
   }
 
   findById(productId: number): Promise<Product | null> {
@@ -33,6 +36,13 @@ export class ProductRepository {
     return this.prisma.product.update({
       where: { productId },
       data: { quantityInStock: { increment: quantity } },
+    });
+  }
+
+  discontinue(productId: number): Promise<Product> {
+    return this.prisma.product.update({
+      where: { productId },
+      data: { status: ProductStatus.Discontinued },
     });
   }
 }

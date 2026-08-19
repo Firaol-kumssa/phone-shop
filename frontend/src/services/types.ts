@@ -14,7 +14,7 @@ export interface LoginResponse {
 
 export type PhoneStatus = 'InStock' | 'Reserved' | 'Sold' | 'Returned';
 
-export type PaymentMethod = 'Cash' | 'Card' | 'MobileMoney' | 'BankTransfer';
+export type PaymentMethod = 'Cash' | 'Card' | 'Telebirr' | 'BankTransfer';
 
 export interface Customer {
   customerId: number;
@@ -36,6 +36,8 @@ export interface SaleItem {
   createdAt: string;
 }
 
+export type ProductStatus = 'Active' | 'Discontinued';
+
 /** Non-serialized accessory tracked by quantity — no IMEI. */
 export interface Product {
   productId: number;
@@ -45,6 +47,7 @@ export interface Product {
   costPrice: string;
   sellingPrice: string;
   quantityInStock: number;
+  status: ProductStatus;
   createdAt: string;
   updatedAt: string | null;
 }
@@ -58,6 +61,24 @@ export interface Sale {
   soldBy: number;
   createdAt: string;
   items?: SaleItem[];
+}
+
+export interface SaleDetail extends Sale {
+  items: SaleItemWithPhone[];
+  customer: Customer | null;
+}
+
+export interface ProcessReturnPayload {
+  mode: 'return' | 'exchange';
+  phoneId?: number;
+  productId?: number;
+  quantity?: number;
+  replacement?: {
+    phoneId?: number;
+    productId?: number;
+    quantity?: number;
+    sellingPrice: number;
+  };
 }
 
 export interface SaleItemWithPhone extends SaleItem {
@@ -139,6 +160,20 @@ export interface SalesReport {
   totalProfit: number;
 }
 
+export type ProfitGroupBy = 'model' | 'brand' | 'staff';
+
+export interface ProfitRow {
+  key: string;
+  unitsSold: number;
+  revenue: number;
+  profit: number;
+}
+
+export interface ProfitReport {
+  groupBy: ProfitGroupBy;
+  rows: ProfitRow[];
+}
+
 export interface InventoryReport {
   totalUnits: number;
   totalCostValue: number;
@@ -166,4 +201,15 @@ export interface Phone {
   supplierId: number | null;
   addedDate: string;
   updatedAt: string | null;
+}
+
+export interface CreatePhonePayload {
+  imei: string;
+  brand: string;
+  model: string;
+  storage?: string;
+  color?: string;
+  purchasePrice: number;
+  sellingPrice: number;
+  supplierId?: number;
 }

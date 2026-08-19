@@ -9,7 +9,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
-/** Manual phone intake (Blueprint 3.1) — supplier and purchase price are mandatory. */
+/** Manual phone intake (Blueprint 3.1) — supplier is optional; purchase price is mandatory. */
 export class CreatePhoneDto {
   @Matches(/^\d{14,16}$/, { message: 'imei must be 14-16 digits' })
   imei!: string;
@@ -42,7 +42,8 @@ export class CreatePhoneDto {
   @IsPositive()
   sellingPrice!: number;
 
+  @IsOptional()
   @IsInt()
   @IsPositive()
-  supplierId!: number;
+  supplierId?: number;
 }

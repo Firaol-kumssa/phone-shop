@@ -38,10 +38,17 @@ enum PhoneStatus {
 enum PaymentMethod {
   Cash
   Card
-  MobileMoney  @map("Mobile Money")
+  Telebirr
   BankTransfer @map("Bank Transfer")
 
   @@map("payment_method")
+}
+
+enum ProductStatus {
+  Active
+  Discontinued
+
+  @@map("product_status")
 }
 
 // ─── Tables ─────────────────────────────────────────────────────────────────
@@ -149,16 +156,18 @@ model Customer {
 }
 
 /// Non-serialized accessories (headsets, cases, etc.) tracked by quantity, not IMEI.
+/// Never hard-deleted — past sales reference them; use status Discontinued instead.
 model Product {
-  productId       Int       @id @default(autoincrement()) @map("product_id")
-  name            String    @db.VarChar(150)
-  category        String    @db.VarChar(50)
-  brand           String?   @db.VarChar(50)
-  costPrice       Decimal   @map("cost_price") @db.Decimal(10, 2)
-  sellingPrice    Decimal   @map("selling_price") @db.Decimal(10, 2)
-  quantityInStock Int       @default(0) @map("quantity_in_stock")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime? @updatedAt @map("updated_at")
+  productId       Int           @id @default(autoincrement()) @map("product_id")
+  name            String        @db.VarChar(150)
+  category        String        @db.VarChar(50)
+  brand           String?       @db.VarChar(50)
+  costPrice       Decimal       @map("cost_price") @db.Decimal(10, 2)
+  sellingPrice    Decimal       @map("selling_price") @db.Decimal(10, 2)
+  quantityInStock Int           @default(0) @map("quantity_in_stock")
+  status          ProductStatus @default(Active)
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime?     @updatedAt @map("updated_at")
 
   saleItems SaleItem[]
 

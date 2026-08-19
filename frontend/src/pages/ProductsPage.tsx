@@ -13,7 +13,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useCreateProduct, useProducts, useRestockProduct } from '@/hooks/useProducts';
+import {
+  useCreateProduct,
+  useDiscontinueProduct,
+  useProducts,
+  useRestockProduct,
+} from '@/hooks/useProducts';
+import { useAuth } from '@/hooks/useAuth';
+import type { ProductStatus } from '@/services/types';
 
 const money = (value: string | number) => Number(value).toFixed(2);
 
@@ -27,13 +34,18 @@ const EMPTY_FORM = {
 };
 
 export function ProductsPage() {
-  const { data: products, isLoading } = useProducts();
+  const [statusView, setStatusView] = useState<ProductStatus>('Active');
+  const { data: products, isLoading } = useProducts(statusView);
   const createProduct = useCreateProduct();
   const restock = useRestockProduct();
+  const discontinue = useDiscontinueProduct();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'Admin';
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   // productId → quantity typed into that row's restock input
   const [restockQty, setRestockQty] = useState<Record<number, string>>({});
 
@@ -76,14 +88,35 @@ export function ProductsPage() {
     setRestockQty((prev) => ({ ...prev, [productId]: '' }));
   }
 
+  async function submitDiscontinue(productId: number) {
+    setActionError(null);
+    try {
+      await discontinue.mutateAsync(productId);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not discontinue');
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Products</h1>
-        <Button size="sm" onClick={() => setShowForm((v) => !v)}>
-          <Plus className="h-4 w-4" />
-          Add product
-        </Button>
+        <div className="flex gap-1">
+          {(['Active', 'Discontinued'] as ProductStatus[]).map((status) => (
+            <Button
+              key={status}
+              size="sm"
+              variant={statusView === status ? 'default' : 'outline'}
+              onClick={() => setStatusView(status)}
+            >
+              {status}
+            </Button>
+          ))}
+          <Button size="sm" onClick={() => setShowForm((v) => !v)}>
+            <Plus className="h-4 w-4" />
+            Add product
+          </Button>
+        </div>
       </div>
 
       {showForm && (
@@ -164,12 +197,17 @@ export function ProductsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Accessory stock{products ? ` (${products.length})` : ''}</CardTitle>
+          <CardTitle>
+            {statusView} products{products ? ` (${products.length})` : ''}
+          </CardTitle>
         </CardHeader>
         <CardContent>
+          {actionError && <p className="mb-2 text-sm text-destructive">{actionError}</p>}
           {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
           {products && products.length === 0 && (
-            <p className="text-sm text-muted-foreground">No products yet — add one above.</p>
+            <p className="text-sm text-muted-foreground">
+              {statusView === 'Active' ? 'No products yet — add one above.' : 'Nothing discontinued.'}
+            </p>
           )}
           {products && products.length > 0 && (
             <Table>
@@ -199,28 +237,44 @@ export function ProductsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
-                        <Input
-                          type="number"
-                          min="1"
-                          step="1"
-                          className="h-8 w-20 text-right"
-                          placeholder="Qty"
-                          value={restockQty[product.productId] ?? ''}
-                          onChange={(e) =>
-                            setRestockQty((prev) => ({
-                              ...prev,
-                              [product.productId]: e.target.value,
-                            }))
-                          }
-                        />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={restock.isPending || !(Number(restockQty[product.productId]) > 0)}
-                          onClick={() => submitRestock(product.productId)}
-                        >
-                          Add
-                        </Button>
+                        {statusView === 'Active' ? (
+                          <>
+                            <Input
+                              type="number"
+                              min="1"
+                              step="1"
+                              className="h-8 w-20 text-right"
+                              placeholder="Qty"
+                              value={restockQty[product.productId] ?? ''}
+                              onChange={(e) =>
+                                setRestockQty((prev) => ({
+                                  ...prev,
+                                  [product.productId]: e.target.value,
+                                }))
+                              }
+                            />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={restock.isPending || !(Number(restockQty[product.productId]) > 0)}
+                              onClick={() => submitRestock(product.productId)}
+                            >
+                              Add
+                            </Button>
+                            {isAdmin && (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                disabled={discontinue.isPending}
+                                onClick={() => submitDiscontinue(product.productId)}
+                              >
+                                Discontinue
+                              </Button>
+                            )}
+                          </>
+                        ) : (
+                          <Badge variant="destructive">Discontinued</Badge>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

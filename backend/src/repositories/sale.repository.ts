@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PaymentMethod, PhoneStatus, Sale } from '@prisma/client';
+import { PaymentMethod, PhoneStatus, ProductStatus, Sale } from '@prisma/client';
 import { PrismaService } from '../config/prisma.service';
 
 /** Thrown when a phone stopped being In Stock between selection and commit. */
@@ -16,6 +16,9 @@ export class ProductsUnavailableError extends Error {
   }
 }
 
+/** Thrown when a return/exchange precondition fails inside the transaction. */
+export class ReturnNotPossibleError extends Error {}
+
 export interface CreateSaleInput {
   customerId?: number;
   paymentMethod: PaymentMethod;
@@ -25,18 +28,40 @@ export interface CreateSaleInput {
   productItems: { productId: number; quantity: number; sellingPrice: number; profit: number }[];
 }
 
+export interface ProcessReturnInput {
+  saleId: number;
+  returned: {
+    saleItemId: number;
+    phoneId?: number;
+    productId?: number;
+    quantity: number;
+    refundAmount: number;
+    profitVoid: number;
+  };
+  replacement?: {
+    phoneId?: number;
+    productId?: number;
+    quantity: number;
+    sellingPrice: number;
+    profit: number;
+  };
+}
+
 @Injectable()
 export class SaleRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   findAll(): Promise<Sale[]> {
-    return this.prisma.sale.findMany({ include: { items: true } });
+    return this.prisma.sale.findMany({
+      orderBy: { saleDate: 'desc' },
+      include: { items: { include: { phone: true, product: true } }, customer: true },
+    });
   }
 
   findById(saleId: number): Promise<Sale | null> {
     return this.prisma.sale.findUnique({
       where: { saleId },
-      include: { items: true, customer: true },
+      include: { items: { include: { phone: true, product: true } }, customer: true },
     });
   }
 
@@ -63,7 +88,11 @@ export class SaleRepository {
       // Conditional decrement doubles as the stock guard: 0 rows → rollback
       for (const item of input.productItems) {
         const updated = await tx.product.updateMany({
-          where: { productId: item.productId, quantityInStock: { gte: item.quantity } },
+          where: {
+            productId: item.productId,
+            status: ProductStatus.Active,
+            quantityInStock: { gte: item.quantity },
+          },
           data: { quantityInStock: { decrement: item.quantity } },
         });
         if (updated.count === 0) {
@@ -108,6 +137,100 @@ export class SaleRepository {
       }
 
       return sale;
+    });
+  }
+
+  /**
+   * Return/exchange in ONE atomic transaction (Blueprint Part 13):
+   * restore the returned phone/product, void the line's profit, adjust the
+   * sale total, and (for exchanges) add the replacement line — all or nothing.
+   */
+  processReturn(input: ProcessReturnInput): Promise<Sale> {
+    return this.prisma.$transaction(async (tx) => {
+      const line = await tx.saleItem.findUnique({
+        where: { saleItemId: input.returned.saleItemId },
+      });
+      if (!line || line.saleId !== input.saleId) {
+        throw new ReturnNotPossibleError('Sale item not found on this sale');
+      }
+
+      if (input.returned.phoneId !== undefined) {
+        // Conditional update guards against double-returns
+        const marked = await tx.phone.updateMany({
+          where: { phoneId: input.returned.phoneId, status: PhoneStatus.Sold },
+          data: { status: PhoneStatus.Returned },
+        });
+        if (marked.count === 0) {
+          throw new ReturnNotPossibleError('Phone is not in Sold state (already returned?)');
+        }
+        await tx.saleItem.update({
+          where: { saleItemId: line.saleItemId },
+          data: { profit: 0 },
+        });
+      } else {
+        if (line.quantity < input.returned.quantity) {
+          throw new ReturnNotPossibleError('Return quantity exceeds the quantity still on the sale');
+        }
+        await tx.product.update({
+          where: { productId: input.returned.productId },
+          data: { quantityInStock: { increment: input.returned.quantity } },
+        });
+        await tx.saleItem.update({
+          where: { saleItemId: line.saleItemId },
+          data: {
+            quantity: { decrement: input.returned.quantity },
+            profit: { decrement: input.returned.profitVoid },
+          },
+        });
+      }
+
+      let totalDelta = -input.returned.refundAmount;
+
+      if (input.replacement) {
+        const replacement = input.replacement;
+        if (replacement.phoneId !== undefined) {
+          const marked = await tx.phone.updateMany({
+            where: { phoneId: replacement.phoneId, status: PhoneStatus.InStock },
+            data: { status: PhoneStatus.Sold },
+          });
+          if (marked.count === 0) {
+            throw new PhonesUnavailableError([]);
+          }
+        } else if (replacement.productId !== undefined) {
+          const updated = await tx.product.updateMany({
+            where: {
+              productId: replacement.productId,
+              status: ProductStatus.Active,
+              quantityInStock: { gte: replacement.quantity },
+            },
+            data: { quantityInStock: { decrement: replacement.quantity } },
+          });
+          if (updated.count === 0) {
+            throw new ProductsUnavailableError([replacement.productId]);
+          }
+        }
+        await tx.saleItem.create({
+          data: {
+            saleId: input.saleId,
+            phoneId: replacement.phoneId,
+            productId: replacement.productId,
+            quantity: replacement.quantity,
+            sellingPrice: replacement.sellingPrice,
+            profit: replacement.profit,
+          },
+        });
+        totalDelta += replacement.sellingPrice * replacement.quantity;
+      }
+
+      await tx.sale.update({
+        where: { saleId: input.saleId },
+        data: { totalAmount: { increment: totalDelta } },
+      });
+
+      return tx.sale.findUniqueOrThrow({
+        where: { saleId: input.saleId },
+        include: { items: { include: { phone: true, product: true } }, customer: true },
+      });
     });
   }
 }

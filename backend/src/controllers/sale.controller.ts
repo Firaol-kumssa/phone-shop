@@ -12,6 +12,7 @@ import { AuthenticatedUser, CurrentUser, JwtAuthGuard } from '../middleware/auth
 import { RolesGuard } from '../middleware/role.middleware';
 import { SaleService } from '../services/sale.service';
 import { CreateSaleDto } from '../models/dto/create-sale.dto';
+import { ProcessReturnDto } from '../models/dto/process-return.dto';
 
 @Controller('sales')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -38,5 +39,15 @@ export class SaleController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<Sale> {
     return this.saleService.createSale(dto, user.userId);
+  }
+
+  /** Return or exchange an item from this sale (Blueprint Part 13), atomically. */
+  @Post(':id/return')
+  processReturn(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ProcessReturnDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Sale> {
+    return this.saleService.processReturn(id, dto, user.userId);
   }
 }

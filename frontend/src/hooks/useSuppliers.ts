@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getSupplier, listSuppliers, recordDelivery } from '@/services/supplier.service';
+import { createSupplier, getSupplier, listSuppliers, recordDelivery } from '@/services/supplier.service';
 import type { RecordDeliveryPayload } from '@/services/types';
 
 export function useSuppliers() {
@@ -11,6 +11,14 @@ export function useSupplier(supplierId: number | null) {
     queryKey: ['suppliers', supplierId],
     queryFn: () => getSupplier(supplierId!),
     enabled: supplierId !== null,
+  });
+}
+
+export function useCreateSupplier() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createSupplier,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['suppliers'] }),
   });
 }
 

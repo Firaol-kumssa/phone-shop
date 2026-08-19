@@ -202,7 +202,7 @@ export function CustomersPage() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Phone</TableHead>
+                            <TableHead>Item</TableHead>
                             <TableHead>IMEI</TableHead>
                             <TableHead className="text-right">Paid</TableHead>
                           </TableRow>
@@ -211,11 +211,20 @@ export function CustomersPage() {
                           {sale.items.map((item) => (
                             <TableRow key={item.saleItemId}>
                               <TableCell>
-                                {item.phone.brand} {item.phone.model}
-                                {item.phone.storage ? ` · ${item.phone.storage}` : ''}
+                                {item.phone
+                                  ? `${item.phone.brand} ${item.phone.model}${
+                                      item.phone.storage ? ` · ${item.phone.storage}` : ''
+                                    }`
+                                  : item.product
+                                    ? `${item.product.name}${item.quantity > 1 ? ` × ${item.quantity}` : ''}`
+                                    : `Item #${item.saleItemId}`}
                               </TableCell>
-                              <TableCell className="font-mono text-xs">{item.phone.imei}</TableCell>
-                              <TableCell className="text-right">{money(item.sellingPrice)}</TableCell>
+                              <TableCell className="font-mono text-xs">
+                                {item.phone?.imei ?? '—'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {money(Number(item.sellingPrice) * item.quantity)}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>

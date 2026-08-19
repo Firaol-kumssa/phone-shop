@@ -9,6 +9,15 @@ export function getSupplier(supplierId: number): Promise<SupplierDetail> {
   return api<SupplierDetail>(`/suppliers/${supplierId}`);
 }
 
+export function createSupplier(data: {
+  name: string;
+  phoneNumber?: string;
+  email?: string;
+  address?: string;
+}): Promise<Supplier> {
+  return api<Supplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) });
+}
+
 export function recordDelivery(
   supplierId: number,
   payload: RecordDeliveryPayload,

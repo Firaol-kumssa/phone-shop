@@ -1,8 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createProduct, listProducts, restockProduct } from '@/services/product.service';
+import {
+  createProduct,
+  discontinueProduct,
+  listProducts,
+  restockProduct,
+} from '@/services/product.service';
+import type { ProductStatus } from '@/services/types';
 
-export function useProducts() {
-  return useQuery({ queryKey: ['products'], queryFn: listProducts });
+export function useProducts(status?: ProductStatus) {
+  return useQuery({
+    queryKey: ['products', status ?? 'all'],
+    queryFn: () => listProducts(status),
+  });
+}
+
+export function useDiscontinueProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: discontinueProduct,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
+  });
 }
 
 export function useCreateProduct() {

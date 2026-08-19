@@ -1,8 +1,13 @@
 import { api } from './api';
-import type { Product } from './types';
+import type { Product, ProductStatus } from './types';
 
-export function listProducts(): Promise<Product[]> {
-  return api<Product[]>('/products');
+export function listProducts(status?: ProductStatus): Promise<Product[]> {
+  const query = status ? `?status=${status}` : '';
+  return api<Product[]>(`/products${query}`);
+}
+
+export function discontinueProduct(productId: number): Promise<Product> {
+  return api<Product>(`/products/${productId}/discontinue`, { method: 'PATCH' });
 }
 
 export function createProduct(data: {
