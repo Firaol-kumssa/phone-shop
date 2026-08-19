@@ -3,6 +3,8 @@ import {
   fetchInventoryReport,
   fetchProfitReport,
   fetchSalesReport,
+  fetchSalesSeries,
+  fetchSalesSplit,
   type SalesPeriod,
 } from '@/services/report.service';
 import type { ProfitGroupBy } from '@/services/types';
@@ -11,6 +13,22 @@ export function useSalesReport(period: SalesPeriod, param: string | undefined, e
   return useQuery({
     queryKey: ['reports', period, param ?? 'current'],
     queryFn: () => fetchSalesReport(period, param),
+    enabled,
+  });
+}
+
+export function useSalesSeries(period: SalesPeriod, enabled: boolean) {
+  return useQuery({
+    queryKey: ['reports', 'series', period],
+    queryFn: () => fetchSalesSeries(period),
+    enabled,
+  });
+}
+
+export function useSalesSplit(enabled: boolean) {
+  return useQuery({
+    queryKey: ['reports', 'split'],
+    queryFn: fetchSalesSplit,
     enabled,
   });
 }

@@ -195,6 +195,8 @@ export interface InventoryReport {
   totalUnits: number;
   totalCostValue: number;
   totalRetailValue: number;
+  phones: { units: number; costValue: number; retailValue: number };
+  products: { units: number; costValue: number; retailValue: number };
   byModel: {
     brand: string;
     model: string;
@@ -202,6 +204,18 @@ export interface InventoryReport {
     costValue: number;
     retailValue: number;
   }[];
+  byProduct: {
+    name: string;
+    category: string;
+    units: number;
+    costValue: number;
+    retailValue: number;
+  }[];
+}
+
+export interface SalesSplit {
+  phones: { units: number; revenue: number; profit: number };
+  products: { units: number; revenue: number; profit: number };
 }
 
 /** Decimal columns are serialized as strings by the API. */

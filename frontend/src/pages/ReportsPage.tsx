@@ -1,4 +1,17 @@
 import { useState } from 'react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -10,7 +23,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useInventoryReport, useProfitReport, useSalesReport } from '@/hooks/useReports';
+import {
+  useInventoryReport,
+  useProfitReport,
+  useSalesReport,
+  useSalesSeries,
+  useSalesSplit,
+} from '@/hooks/useReports';
 import type { SalesPeriod } from '@/services/report.service';
 import type { ProfitGroupBy } from '@/services/types';
 
@@ -32,6 +51,17 @@ const GROUP_BYS: { value: ProfitGroupBy; label: string }[] = [
 
 const money = (value: number) => value.toFixed(2);
 const day = (iso: string) => new Date(iso).toLocaleDateString();
+
+const PIE_COLORS = ['#18181b', '#a1a1aa'];
+
+function seriesLabel(period: SalesPeriod, fromIso: string): string {
+  const from = new Date(fromIso);
+  if (period === 'monthly') {
+    return from.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+  }
+  const label = from.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
+  return period === 'weekly' ? `wk ${label}` : label;
+}
 
 /** Any day inside the previous period; backend snaps it to the period start. */
 function previousParam(period: SalesPeriod, currentFrom: string): string {
@@ -99,8 +129,24 @@ export function ReportsPage() {
     sales.data ? previousParam(period, sales.data.from) : undefined,
     isSalesTab && !!sales.data,
   );
+  const series = useSalesSeries(period, isSalesTab);
+  const split = useSalesSplit(isSalesTab);
   const profit = useProfitReport(groupBy, tab === 'bestsellers');
   const inventory = useInventoryReport(tab === 'inventory');
+
+  const chartData =
+    series.data?.map((bucket) => ({
+      label: seriesLabel(period, bucket.from),
+      Revenue: bucket.totalRevenue,
+      Profit: bucket.totalProfit,
+    })) ?? [];
+
+  const splitData = split.data
+    ? [
+        { name: 'Phones', value: split.data.phones.revenue },
+        { name: 'Products', value: split.data.products.revenue },
+      ].filter((slice) => slice.value > 0)
+    : [];
 
   const bestSellers = profit.data
     ? [...profit.data.rows].sort((a, b) => b[sortBy] - a[sortBy])
@@ -181,6 +227,65 @@ export function ReportsPage() {
               />
             </div>
           )}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue vs profit — last 7 {period === 'daily' ? 'days' : period === 'weekly' ? 'weeks' : 'months'}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {chartData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Loading chart…</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" fontSize={12} />
+                      <YAxis fontSize={12} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="Revenue" fill="#18181b" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Profit" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue split — phones vs products</CardTitle>
+                <CardDescription>All recorded sales.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {splitData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {split.isLoading ? 'Loading chart…' : 'No sales recorded yet.'}
+                  </p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart>
+                      <Pie
+                        data={splitData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={90}
+                        label={(entry) => `${entry.name}: ${money(Number(entry.value))}`}
+                      >
+                        {splitData.map((slice, index) => (
+                          <Cell key={slice.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => money(Number(value))} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </>
       )}
 
@@ -274,6 +379,16 @@ export function ReportsPage() {
                 <SummaryCard label="Cost value" value={money(inventory.data.totalCostValue)} />
                 <SummaryCard label="Retail value" value={money(inventory.data.totalRetailValue)} />
               </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <SummaryCard
+                  label="Phones"
+                  value={`${inventory.data.phones.units} units · ${money(inventory.data.phones.retailValue)} retail`}
+                />
+                <SummaryCard
+                  label="Products"
+                  value={`${inventory.data.products.units} units · ${money(inventory.data.products.retailValue)} retail`}
+                />
+              </div>
               <Card>
                 <CardHeader>
                   <CardTitle>Breakdown by model</CardTitle>
@@ -297,6 +412,39 @@ export function ReportsPage() {
                           <TableRow key={`${row.brand}-${row.model}`}>
                             <TableCell>{row.brand}</TableCell>
                             <TableCell>{row.model}</TableCell>
+                            <TableCell className="text-right">{row.units}</TableCell>
+                            <TableCell className="text-right">{money(row.costValue)}</TableCell>
+                            <TableCell className="text-right">{money(row.retailValue)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Breakdown by product</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {inventory.data.byProduct.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No products in stock.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Product</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead className="text-right">Units</TableHead>
+                          <TableHead className="text-right">Cost value</TableHead>
+                          <TableHead className="text-right">Retail value</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {inventory.data.byProduct.map((row) => (
+                          <TableRow key={`${row.category}-${row.name}`}>
+                            <TableCell>{row.name}</TableCell>
+                            <TableCell>{row.category}</TableCell>
                             <TableCell className="text-right">{row.units}</TableCell>
                             <TableCell className="text-right">{money(row.costValue)}</TableCell>
                             <TableCell className="text-right">{money(row.retailValue)}</TableCell>

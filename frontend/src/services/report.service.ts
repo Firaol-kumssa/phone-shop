@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { InventoryReport, ProfitGroupBy, ProfitReport, SalesReport } from './types';
+import type { InventoryReport, ProfitGroupBy, ProfitReport, SalesReport, SalesSplit } from './types';
 
 export type SalesPeriod = 'daily' | 'weekly' | 'monthly';
 
@@ -8,6 +8,14 @@ export function fetchSalesReport(period: SalesPeriod, param?: string): Promise<S
   const key = period === 'monthly' ? 'month' : 'date';
   const query = param ? `?${key}=${param}` : '';
   return api<SalesReport>(`/reports/${period}${query}`);
+}
+
+export function fetchSalesSeries(period: SalesPeriod): Promise<SalesReport[]> {
+  return api<SalesReport[]>(`/reports/series?period=${period}`);
+}
+
+export function fetchSalesSplit(): Promise<SalesSplit> {
+  return api<SalesSplit>('/reports/split');
 }
 
 export function fetchProfitReport(groupBy: ProfitGroupBy): Promise<ProfitReport> {

@@ -15,6 +15,8 @@ export interface InventoryReport {
   totalUnits: number;
   totalCostValue: number;
   totalRetailValue: number;
+  phones: { units: number; costValue: number; retailValue: number };
+  products: { units: number; costValue: number; retailValue: number };
   byModel: {
     brand: string;
     model: string;
@@ -22,6 +24,18 @@ export interface InventoryReport {
     costValue: number;
     retailValue: number;
   }[];
+  byProduct: {
+    name: string;
+    category: string;
+    units: number;
+    costValue: number;
+    retailValue: number;
+  }[];
+}
+
+export interface SalesSplit {
+  phones: { units: number; revenue: number; profit: number };
+  products: { units: number; revenue: number; profit: number };
 }
 
 export type ProfitGroupBy = 'model' | 'brand' | 'staff';
@@ -87,10 +101,63 @@ export class ReportService {
     };
   }
 
-  /** Count and value of phones where status = In Stock, grouped by brand/model (Blueprint 3.5). */
+  /** Last `count` periods, oldest first — same shared query per bucket (Blueprint 3.5). */
+  async salesSeries(period?: string, count = 7): Promise<SalesReport[]> {
+    const grouping = period ?? 'daily';
+    if (!['daily', 'weekly', 'monthly'].includes(grouping)) {
+      throw new BadRequestException('period must be one of: daily, weekly, monthly');
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const ranges: { from: Date; to: Date }[] = [];
+
+    if (grouping === 'daily') {
+      for (let i = count - 1; i >= 0; i--) {
+        const from = this.addDays(today, -i);
+        ranges.push({ from, to: this.addDays(from, 1) });
+      }
+    } else if (grouping === 'weekly') {
+      const monday = this.addDays(today, -((today.getDay() + 6) % 7));
+      for (let i = count - 1; i >= 0; i--) {
+        const from = this.addDays(monday, -7 * i);
+        ranges.push({ from, to: this.addDays(from, 7) });
+      }
+    } else {
+      for (let i = count - 1; i >= 0; i--) {
+        ranges.push({
+          from: new Date(today.getFullYear(), today.getMonth() - i, 1),
+          to: new Date(today.getFullYear(), today.getMonth() - i + 1, 1),
+        });
+      }
+    }
+
+    return Promise.all(ranges.map((range) => this.salesReport(range.from, range.to)));
+  }
+
+  /** All-time revenue/profit split between serialized phones and products. */
+  async salesSplit(): Promise<SalesSplit> {
+    const items = await this.prisma.saleItem.findMany({
+      select: { sellingPrice: true, profit: true, quantity: true, phoneId: true },
+    });
+
+    const split: SalesSplit = {
+      phones: { units: 0, revenue: 0, profit: 0 },
+      products: { units: 0, revenue: 0, profit: 0 },
+    };
+    for (const item of items) {
+      const bucket = item.phoneId !== null ? split.phones : split.products;
+      bucket.units += item.quantity;
+      bucket.revenue += Number(item.sellingPrice) * item.quantity;
+      bucket.profit += Number(item.profit);
+    }
+    return split;
+  }
+
+  /** Count and value of everything in stock — phones by model, products by item (Blueprint 3.5). */
   async inventoryReport(): Promise<InventoryReport> {
     const where = { status: PhoneStatus.InStock };
-    const [totals, groups] = await Promise.all([
+    const [totals, groups, stockedProducts] = await Promise.all([
       this.prisma.phone.aggregate({
         where,
         _count: { phoneId: true },
@@ -103,12 +170,41 @@ export class ReportService {
         _sum: { purchasePrice: true, sellingPrice: true },
         orderBy: [{ brand: 'asc' }, { model: 'asc' }],
       }),
+      this.prisma.product.findMany({
+        where: { quantityInStock: { gt: 0 } },
+        orderBy: [{ category: 'asc' }, { name: 'asc' }],
+      }),
     ]);
 
+    const phones = {
+      units: totals._count.phoneId,
+      costValue: Number(totals._sum.purchasePrice ?? 0),
+      retailValue: Number(totals._sum.sellingPrice ?? 0),
+    };
+
+    // Aggregates can't multiply price × quantity — single-shop volume, compute in memory
+    const byProduct = stockedProducts.map((p) => ({
+      name: p.name,
+      category: p.category,
+      units: p.quantityInStock,
+      costValue: p.costPrice.toNumber() * p.quantityInStock,
+      retailValue: p.sellingPrice.toNumber() * p.quantityInStock,
+    }));
+    const products = byProduct.reduce(
+      (acc, row) => ({
+        units: acc.units + row.units,
+        costValue: acc.costValue + row.costValue,
+        retailValue: acc.retailValue + row.retailValue,
+      }),
+      { units: 0, costValue: 0, retailValue: 0 },
+    );
+
     return {
-      totalUnits: totals._count.phoneId,
-      totalCostValue: Number(totals._sum.purchasePrice ?? 0),
-      totalRetailValue: Number(totals._sum.sellingPrice ?? 0),
+      totalUnits: phones.units + products.units,
+      totalCostValue: phones.costValue + products.costValue,
+      totalRetailValue: phones.retailValue + products.retailValue,
+      phones,
+      products,
       byModel: groups.map((g) => ({
         brand: g.brand,
         model: g.model,
@@ -116,6 +212,7 @@ export class ReportService {
         costValue: Number(g._sum.purchasePrice ?? 0),
         retailValue: Number(g._sum.sellingPrice ?? 0),
       })),
+      byProduct,
     };
   }
 
