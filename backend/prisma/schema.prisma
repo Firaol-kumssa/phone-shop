@@ -139,7 +139,7 @@ model Phone {
 
   supplier     Supplier?     @relation(fields: [supplierId], references: [supplierId])
   purchaseItem PurchaseItem?
-  saleItem     SaleItem?
+  saleItems    SaleItem[]
 
   @@map("phones")
 }
@@ -197,10 +197,11 @@ model Sale {
 /// One row per line sold: either a serialized phone (phoneId, quantity = 1)
 /// or a quantity of a product (productId + quantity). sellingPrice is the unit
 /// price; profit is the whole line's profit, captured at sale time.
+/// phoneId is not unique — a returned phone re-enters stock and can be sold again.
 model SaleItem {
   saleItemId   Int      @id @default(autoincrement()) @map("sale_item_id")
   saleId       Int      @map("sale_id")
-  phoneId      Int?     @unique @map("phone_id")
+  phoneId      Int?     @map("phone_id")
   productId    Int?     @map("product_id")
   quantity     Int      @default(1)
   sellingPrice Decimal  @map("selling_price") @db.Decimal(10, 2)
@@ -211,6 +212,7 @@ model SaleItem {
   phone   Phone?   @relation(fields: [phoneId], references: [phoneId])
   product Product? @relation(fields: [productId], references: [productId])
 
+  @@index([phoneId])
   @@map("sale_items")
 }
 

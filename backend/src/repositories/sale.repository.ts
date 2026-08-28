@@ -155,17 +155,19 @@ export class SaleRepository {
       }
 
       if (input.returned.phoneId !== undefined) {
-        // Conditional update guards against double-returns
+        // Conditional update guards against double-returns; the phone rejoins sellable stock
         const marked = await tx.phone.updateMany({
           where: { phoneId: input.returned.phoneId, status: PhoneStatus.Sold },
-          data: { status: PhoneStatus.Returned },
+          data: { status: PhoneStatus.InStock },
         });
         if (marked.count === 0) {
           throw new ReturnNotPossibleError('Phone is not in Sold state (already returned?)');
         }
+        // Zero quantity so units/revenue aggregations exclude the returned phone;
+        // profitVoid equals the full line profit, so the decrement zeroes it
         await tx.saleItem.update({
           where: { saleItemId: line.saleItemId },
-          data: { profit: 0 },
+          data: { profit: { decrement: input.returned.profitVoid }, quantity: 0 },
         });
       } else {
         if (line.quantity < input.returned.quantity) {

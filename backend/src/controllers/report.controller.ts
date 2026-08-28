@@ -6,6 +6,7 @@ import {
   InventoryReport,
   ProfitReport,
   ReportService,
+  ReturnsReport,
   SalesReport,
   SalesSplit,
 } from '../services/report.service';
@@ -52,6 +53,13 @@ export class ReportController {
   @Roles(UserRole.Admin)
   split(): Promise<SalesSplit> {
     return this.reportService.salesSplit();
+  }
+
+  /** Everything returned or exchanged in [from, to), derived from the audit trail. */
+  @Get('returns')
+  @Roles(UserRole.Admin)
+  returns(@Query('from') from?: string, @Query('to') to?: string): Promise<ReturnsReport> {
+    return this.reportService.returnsReport(from, to);
   }
 
   /** Stock counts are visible to all staff (Blueprint 11.2 "View daily stock"). */

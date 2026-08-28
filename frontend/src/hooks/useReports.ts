@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   fetchInventoryReport,
   fetchProfitReport,
+  fetchReturnsReport,
   fetchSalesReport,
   fetchSalesSeries,
   fetchSalesSplit,
@@ -29,6 +30,14 @@ export function useSalesSplit(enabled: boolean) {
   return useQuery({
     queryKey: ['reports', 'split'],
     queryFn: fetchSalesSplit,
+    enabled,
+  });
+}
+
+export function useReturnsReport(from: string | undefined, to: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['reports', 'returns', from ?? 'all', to ?? 'all'],
+    queryFn: () => fetchReturnsReport(from, to),
     enabled,
   });
 }

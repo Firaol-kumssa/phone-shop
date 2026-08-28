@@ -26,6 +26,7 @@ import {
 import {
   useInventoryReport,
   useProfitReport,
+  useReturnsReport,
   useSalesReport,
   useSalesSeries,
   useSalesSplit,
@@ -52,14 +53,15 @@ const GROUP_BYS: { value: ProfitGroupBy; label: string }[] = [
 const money = (value: number) => value.toFixed(2);
 const day = (iso: string) => new Date(iso).toLocaleDateString();
 
-const PIE_COLORS = ['#18181b', '#a1a1aa'];
+const CHART_COLORS = { revenue: '#2563eb', profit: '#10b981' };
+const PIE_COLORS = ['#2563eb', '#f59e0b'];
 
-function seriesLabel(period: SalesPeriod, fromIso: string): string {
-  const from = new Date(fromIso);
+function bucketLabel(period: SalesPeriod, fromIso: string): string {
+  const d = new Date(fromIso);
   if (period === 'monthly') {
-    return from.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+    return d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
   }
-  const label = from.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
+  const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return period === 'weekly' ? `wk ${label}` : label;
 }
 
@@ -118,6 +120,7 @@ export function ReportsPage() {
   const [month, setMonth] = useState('');
   const [groupBy, setGroupBy] = useState<ProfitGroupBy>('model');
   const [sortBy, setSortBy] = useState<'unitsSold' | 'revenue'>('unitsSold');
+  const [showReturnDetails, setShowReturnDetails] = useState(false);
 
   const isSalesTab = tab === 'daily' || tab === 'weekly' || tab === 'monthly';
   const period = isSalesTab ? tab : 'daily';
@@ -129,27 +132,32 @@ export function ReportsPage() {
     sales.data ? previousParam(period, sales.data.from) : undefined,
     isSalesTab && !!sales.data,
   );
-  const series = useSalesSeries(period, isSalesTab);
-  const split = useSalesSplit(isSalesTab);
   const profit = useProfitReport(groupBy, tab === 'bestsellers');
   const inventory = useInventoryReport(tab === 'inventory');
-
-  const chartData =
-    series.data?.map((bucket) => ({
-      label: seriesLabel(period, bucket.from),
-      Revenue: bucket.totalRevenue,
-      Profit: bucket.totalProfit,
-    })) ?? [];
-
-  const splitData = split.data
-    ? [
-        { name: 'Phones', value: split.data.phones.revenue },
-        { name: 'Products', value: split.data.products.revenue },
-      ].filter((slice) => slice.value > 0)
-    : [];
+  const series = useSalesSeries(period, isSalesTab);
+  const split = useSalesSplit(isSalesTab);
+  // Returns are scoped to the same [from, to) window as the sales report
+  const returns = useReturnsReport(
+    sales.data?.from,
+    sales.data?.to,
+    isSalesTab && !!sales.data,
+  );
 
   const bestSellers = profit.data
     ? [...profit.data.rows].sort((a, b) => b[sortBy] - a[sortBy])
+    : [];
+
+  const chartData = (series.data ?? []).map((bucket) => ({
+    name: bucketLabel(period, bucket.from),
+    revenue: Number(bucket.totalRevenue.toFixed(2)),
+    profit: Number(bucket.totalProfit.toFixed(2)),
+  }));
+
+  const splitData = split.data
+    ? [
+        { name: 'Phones', value: Number(split.data.phones.revenue.toFixed(2)) },
+        { name: 'Products', value: Number(split.data.products.revenue.toFixed(2)) },
+      ].filter((entry) => entry.value > 0)
     : [];
 
   return (
@@ -228,24 +236,38 @@ export function ReportsPage() {
             </div>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
             <Card>
               <CardHeader>
-                <CardTitle>Revenue vs profit — last 7 {period === 'daily' ? 'days' : period === 'weekly' ? 'weeks' : 'months'}</CardTitle>
+                <CardTitle>
+                  Last 7 {tab === 'daily' ? 'days' : tab === 'weekly' ? 'weeks' : 'months'}
+                </CardTitle>
+                <CardDescription>Revenue vs profit per period, oldest first.</CardDescription>
               </CardHeader>
               <CardContent>
-                {chartData.length === 0 ? (
+                {series.isLoading && (
                   <p className="text-sm text-muted-foreground">Loading chart…</p>
-                ) : (
+                )}
+                {chartData.length > 0 && (
                   <ResponsiveContainer width="100%" height={260}>
                     <BarChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" fontSize={12} />
-                      <YAxis fontSize={12} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
                       <Tooltip />
                       <Legend />
-                      <Bar dataKey="Revenue" fill="#18181b" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Profit" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <Bar
+                        dataKey="revenue"
+                        name="Revenue"
+                        fill={CHART_COLORS.revenue}
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="profit"
+                        name="Profit"
+                        fill={CHART_COLORS.profit}
+                        radius={[4, 4, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
@@ -254,31 +276,33 @@ export function ReportsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Revenue split — phones vs products</CardTitle>
-                <CardDescription>All recorded sales.</CardDescription>
+                <CardTitle>Phones vs products</CardTitle>
+                <CardDescription>All-time revenue split.</CardDescription>
               </CardHeader>
               <CardContent>
-                {splitData.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    {split.isLoading ? 'Loading chart…' : 'No sales recorded yet.'}
-                  </p>
-                ) : (
+                {split.isLoading && (
+                  <p className="text-sm text-muted-foreground">Loading chart…</p>
+                )}
+                {split.data && splitData.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No sales recorded yet.</p>
+                )}
+                {splitData.length > 0 && (
                   <ResponsiveContainer width="100%" height={260}>
                     <PieChart>
                       <Pie
                         data={splitData}
                         dataKey="value"
                         nameKey="name"
-                        cx="50%"
-                        cy="50%"
+                        innerRadius={55}
                         outerRadius={90}
-                        label={(entry) => `${entry.name}: ${money(Number(entry.value))}`}
+                        paddingAngle={2}
+                        label={(entry) => money(Number(entry.value))}
                       >
-                        {splitData.map((slice, index) => (
-                          <Cell key={slice.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                        {splitData.map((entry, index) => (
+                          <Cell key={entry.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value) => money(Number(value))} />
+                      <Tooltip />
                       <Legend />
                     </PieChart>
                   </ResponsiveContainer>
@@ -286,6 +310,60 @@ export function ReportsPage() {
               </CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle>Returns this period</CardTitle>
+                <CardDescription>
+                  {returns.data
+                    ? `${returns.data.totalReturns} return${
+                        returns.data.totalReturns === 1 ? '' : 's'
+                      } · refunded ${money(returns.data.totalRefunded)} · profit voided ${money(
+                        returns.data.totalProfitVoided,
+                      )}`
+                    : 'Loading…'}
+                </CardDescription>
+              </div>
+              {returns.data && returns.data.rows.length > 0 && (
+                <Button size="sm" variant="outline" onClick={() => setShowReturnDetails((v) => !v)}>
+                  {showReturnDetails ? 'Hide details' : 'Show details'}
+                </Button>
+              )}
+            </CardHeader>
+            {showReturnDetails && returns.data && returns.data.rows.length > 0 && (
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Sale</TableHead>
+                      <TableHead>Item</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead>Mode</TableHead>
+                      <TableHead>Replacement</TableHead>
+                      <TableHead className="text-right">Refund</TableHead>
+                      <TableHead>Staff</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {returns.data.rows.map((row, index) => (
+                      <TableRow key={`${row.saleId}-${row.date}-${index}`}>
+                        <TableCell>{new Date(row.date).toLocaleString()}</TableCell>
+                        <TableCell>#{row.saleId}</TableCell>
+                        <TableCell className="font-medium">{row.item}</TableCell>
+                        <TableCell className="text-right">{row.quantity}</TableCell>
+                        <TableCell className="capitalize">{row.mode}</TableCell>
+                        <TableCell>{row.replacement ?? '—'}</TableCell>
+                        <TableCell className="text-right">{money(row.refundAmount)}</TableCell>
+                        <TableCell>{row.staff}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            )}
+          </Card>
         </>
       )}
 
@@ -380,14 +458,20 @@ export function ReportsPage() {
                 <SummaryCard label="Retail value" value={money(inventory.data.totalRetailValue)} />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <SummaryCard
-                  label="Phones"
-                  value={`${inventory.data.phones.units} units · ${money(inventory.data.phones.retailValue)} retail`}
-                />
-                <SummaryCard
-                  label="Products"
-                  value={`${inventory.data.products.units} units · ${money(inventory.data.products.retailValue)} retail`}
-                />
+                {(['phones', 'products'] as const).map((kind) => (
+                  <Card key={kind}>
+                    <CardHeader className="pb-2">
+                      <CardDescription>{kind === 'phones' ? 'Phones' : 'Products'}</CardDescription>
+                      <CardTitle className="text-2xl">
+                        {inventory.data[kind].units} unit{inventory.data[kind].units === 1 ? '' : 's'}
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        cost {money(inventory.data[kind].costValue)} · retail{' '}
+                        {money(inventory.data[kind].retailValue)}
+                      </p>
+                    </CardHeader>
+                  </Card>
+                ))}
               </div>
               <Card>
                 <CardHeader>

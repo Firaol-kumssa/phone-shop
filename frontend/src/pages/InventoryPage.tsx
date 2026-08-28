@@ -21,7 +21,6 @@ const FILTERS: { label: string; value?: PhoneStatus }[] = [
   { label: 'In Stock', value: 'InStock' },
   { label: 'Reserved', value: 'Reserved' },
   { label: 'Sold', value: 'Sold' },
-  { label: 'Returned', value: 'Returned' },
   { label: 'All' },
 ];
 

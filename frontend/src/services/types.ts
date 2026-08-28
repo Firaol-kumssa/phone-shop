@@ -7,6 +7,7 @@ export interface SessionUser {
   status: 'Active' | 'Inactive';
 }
 
+/** User row as returned by /auth/users — everything except the password hash. */
 export interface StaffUser extends SessionUser {
   phoneNumber: string | null;
   digitalId: string | null;
@@ -17,11 +18,11 @@ export interface StaffUser extends SessionUser {
 export interface RegisterUserPayload {
   fullName: string;
   username: string;
-  password: string;
-  role: 'Admin' | 'SalesStaff';
+  email?: string;
   phoneNumber?: string;
   digitalId?: string;
-  email?: string;
+  password: string;
+  role: 'Admin' | 'SalesStaff';
 }
 
 export interface LoginResponse {
@@ -80,24 +81,6 @@ export interface Sale {
   items?: SaleItem[];
 }
 
-export interface SaleDetail extends Sale {
-  items: SaleItemWithPhone[];
-  customer: Customer | null;
-}
-
-export interface ProcessReturnPayload {
-  mode: 'return' | 'exchange';
-  phoneId?: number;
-  productId?: number;
-  quantity?: number;
-  replacement?: {
-    phoneId?: number;
-    productId?: number;
-    quantity?: number;
-    sellingPrice: number;
-  };
-}
-
 export interface SaleItemWithPhone extends SaleItem {
   phone: Phone | null;
   product: Product | null;
@@ -105,6 +88,25 @@ export interface SaleItemWithPhone extends SaleItem {
 
 export interface SaleWithItems extends Sale {
   items: SaleItemWithPhone[];
+}
+
+/** GET /sales — sale with resolved items and customer. */
+export interface SaleDetail extends SaleWithItems {
+  customer: Customer | null;
+}
+
+export interface ProcessReturnPayload {
+  mode: 'return' | 'exchange';
+  phoneId?: number;
+  productId?: number;
+  /** Product returns only; defaults to 1. */
+  quantity?: number;
+  replacement?: {
+    phoneId?: number;
+    productId?: number;
+    quantity?: number;
+    sellingPrice: number;
+  };
 }
 
 /** GET /customers/:id — history derived from sales, not stored (Blueprint 3.3). */
@@ -216,6 +218,22 @@ export interface InventoryReport {
 export interface SalesSplit {
   phones: { units: number; revenue: number; profit: number };
   products: { units: number; revenue: number; profit: number };
+}
+
+export interface ReturnsReport {
+  totalReturns: number;
+  totalRefunded: number;
+  totalProfitVoided: number;
+  rows: {
+    date: string;
+    saleId: number;
+    mode: 'return' | 'exchange';
+    item: string;
+    quantity: number;
+    refundAmount: number;
+    replacement: string | null;
+    staff: string;
+  }[];
 }
 
 /** Decimal columns are serialized as strings by the API. */

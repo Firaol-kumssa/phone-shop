@@ -18,7 +18,7 @@ function itemLabel(item: SaleItemWithPhone): string {
 }
 
 function isReturnable(item: SaleItemWithPhone): boolean {
-  if (item.phone) return item.phone.status === 'Sold';
+  if (item.phone) return item.quantity > 0 && item.phone.status === 'Sold';
   return item.quantity > 0;
 }
 
@@ -121,8 +121,8 @@ export function SalesHistory() {
       <CardHeader>
         <CardTitle>Sales history & returns</CardTitle>
         <CardDescription>
-          Click a sale to see its items; returned phones go back as "Returned", returned
-          accessories go back into stock.
+          Click a sale to see its items; returned phones and accessories go straight back into
+          sellable stock.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -159,10 +159,10 @@ export function SalesHistory() {
                         </span>
                         {item.phone && (
                           <Badge
-                            variant={item.phone.status === 'Returned' ? 'destructive' : 'secondary'}
+                            variant={item.quantity === 0 ? 'destructive' : 'secondary'}
                             className="ml-2"
                           >
-                            {item.phone.status}
+                            {item.quantity === 0 ? 'Returned' : item.phone.status}
                           </Badge>
                         )}
                         {item.product && item.quantity === 0 && (

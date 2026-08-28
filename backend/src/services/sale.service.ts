@@ -159,9 +159,10 @@ export class SaleService {
   }
 
   /**
-   * Return/exchange per Blueprint Part 13. Plain return: restore the item and
-   * void its profit. Exchange: same transaction also sells the replacement
-   * (availability checked first). Audit-logged as RETURN_PROCESSED.
+   * Return/exchange per Blueprint Part 13. Both modes void the returned line's
+   * profit; an exchange additionally sells the replacement in the same
+   * transaction (availability checked first), recording the replacement's own
+   * margin. Audit-logged as RETURN_PROCESSED.
    */
   async processReturn(saleId: number, dto: ProcessReturnDto, userId: number): Promise<Sale> {
     if ((dto.phoneId === undefined) === (dto.productId === undefined)) {
@@ -186,9 +187,10 @@ export class SaleService {
     }
 
     const items = (sale as Sale & { items: SaleItem[] }).items;
+    // quantity > 0 selects the active line — zeroed lines were already returned
     const line =
       dto.phoneId !== undefined
-        ? items.find((item) => item.phoneId === dto.phoneId)
+        ? items.find((item) => item.phoneId === dto.phoneId && item.quantity > 0)
         : items.find((item) => item.productId === dto.productId && item.quantity > 0);
     if (!line) {
       throw new NotFoundException('That item is not on this sale (or was fully returned)');
@@ -210,6 +212,8 @@ export class SaleService {
 
     const unitPrice = Number(line.sellingPrice);
     const refundAmount = unitPrice * returnQuantity;
+    // Both modes void the returned line's profit; an exchange then records the
+    // replacement's own margin, so reports reflect only what actually stayed sold.
     const profitVoid =
       dto.phoneId !== undefined
         ? Number(line.profit)

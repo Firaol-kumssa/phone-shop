@@ -38,6 +38,22 @@ export interface SalesSplit {
   products: { units: number; revenue: number; profit: number };
 }
 
+export interface ReturnsReport {
+  totalReturns: number;
+  totalRefunded: number;
+  totalProfitVoided: number;
+  rows: {
+    date: string;
+    saleId: number;
+    mode: 'return' | 'exchange';
+    item: string;
+    quantity: number;
+    refundAmount: number;
+    replacement: string | null;
+    staff: string;
+  }[];
+}
+
 export type ProfitGroupBy = 'model' | 'brand' | 'staff';
 
 export interface ProfitReport {
@@ -258,6 +274,108 @@ export class ReportService {
     return {
       groupBy: grouping,
       rows: [...rows.values()].sort((a, b) => b.profit - a.profit),
+    };
+  }
+
+  /** What got returned in [from, to) — derived from the RETURN_PROCESSED audit trail. */
+  async returnsReport(from?: string, to?: string): Promise<ReturnsReport> {
+    const range: { gte?: Date; lt?: Date } = {};
+    for (const [key, value] of [['gte', from], ['lt', to]] as const) {
+      if (value !== undefined) {
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new BadRequestException(`Invalid date: ${value}`);
+        }
+        range[key] = parsed;
+      }
+    }
+
+    const logs = await this.prisma.auditLog.findMany({
+      where: {
+        action: 'RETURN_PROCESSED',
+        ...(range.gte || range.lt ? { createdAt: range } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { user: { select: { username: true } } },
+    });
+
+    interface ReturnDetails {
+      mode?: string;
+      returned?: {
+        phoneId: number | null;
+        productId: number | null;
+        quantity: number;
+        refundAmount: number;
+        profitVoided: number;
+      };
+      replacement?: {
+        phoneId: number | null;
+        productId: number | null;
+        quantity: number;
+        sellingPrice: number;
+      } | null;
+    }
+    const parsed = logs.map((log) => ({
+      log,
+      details: JSON.parse(log.details ?? '{}') as ReturnDetails,
+    }));
+
+    const phoneIds = new Set<number>();
+    const productIds = new Set<number>();
+    for (const { details } of parsed) {
+      for (const ref of [details.returned, details.replacement]) {
+        if (ref?.phoneId != null) phoneIds.add(ref.phoneId);
+        if (ref?.productId != null) productIds.add(ref.productId);
+      }
+    }
+
+    const [phones, products] = await Promise.all([
+      phoneIds.size > 0
+        ? this.prisma.phone.findMany({
+            where: { phoneId: { in: [...phoneIds] } },
+            select: { phoneId: true, imei: true, brand: true, model: true },
+          })
+        : [],
+      productIds.size > 0
+        ? this.prisma.product.findMany({
+            where: { productId: { in: [...productIds] } },
+            select: { productId: true, name: true },
+          })
+        : [],
+    ]);
+    const phoneById = new Map(phones.map((p) => [p.phoneId, p]));
+    const productById = new Map(products.map((p) => [p.productId, p]));
+
+    const label = (ref: { phoneId: number | null; productId: number | null }): string => {
+      if (ref.phoneId != null) {
+        const phone = phoneById.get(ref.phoneId);
+        return phone ? `${phone.brand} ${phone.model} (${phone.imei})` : `Phone #${ref.phoneId}`;
+      }
+      const product = ref.productId != null ? productById.get(ref.productId) : undefined;
+      return product?.name ?? `Product #${ref.productId}`;
+    };
+
+    const rows = parsed
+      .filter(({ details }) => details.returned)
+      .map(({ log, details }) => ({
+        date: log.createdAt.toISOString(),
+        saleId: Number(log.recordId),
+        mode: (details.mode === 'exchange' ? 'exchange' : 'return') as 'return' | 'exchange',
+        item: label(details.returned!),
+        quantity: details.returned!.quantity,
+        refundAmount: details.returned!.refundAmount,
+        replacement: details.replacement ? label(details.replacement) : null,
+        staff: log.user?.username ?? 'unknown',
+      }));
+
+    return {
+      totalReturns: rows.length,
+      totalRefunded: rows.reduce((sum, row) => sum + row.refundAmount, 0),
+      totalProfitVoided: parsed.reduce(
+        (sum, { details }) => sum + (details.returned?.profitVoided ?? 0),
+        0,
+      ),
+      rows,
     };
   }
 

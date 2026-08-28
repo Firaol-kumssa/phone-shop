@@ -21,7 +21,8 @@ const ALLOWED_TRANSITIONS: Partial<Record<PhoneStatus, PhoneStatus[]>> = {
  * - A phone can never be added without a purchase price; supplier is optional.
  * - IMEI and purchase price are locked after creation (Admin correction flow only).
  * - Status can never be manually set to Sold — only the Sales Module does that.
- * - Phones are never hard-deleted; use status Returned instead.
+ * - Phones are never hard-deleted; sale returns restock automatically, and the
+ *   manual Returned status remains for damaged/supplier-return units.
  */
 @Injectable()
 export class PhoneService {
