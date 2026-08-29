@@ -11,7 +11,14 @@ async function bootstrap(): Promise<void> {
   app.useGlobalPipes(buildValidationPipe());
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  await app.listen(process.env.PORT ?? 3000);
+  // 0.0.0.0 so hosted platforms (Render) can detect the open port
+  const port = Number(process.env.PORT ?? 3000);
+  await app.listen(port, '0.0.0.0');
+  console.log(`Listening on 0.0.0.0:${port}`);
 }
 
-void bootstrap();
+bootstrap().catch((error) => {
+  // Fail loudly so hosted platforms surface boot errors instead of a silent port timeout
+  console.error('Fatal boot error:', error);
+  process.exit(1);
+});
