@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useRecordDelivery, useCreateSupplier, useSupplier, useSuppliers } from '@/hooks/useSuppliers';
+import { useProducts, useRestockProduct } from '@/hooks/useProducts';
 
 interface ItemRow {
   imei: string;
@@ -36,6 +37,7 @@ const EMPTY_ROW: ItemRow = {
 
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (value: string | number) => Number(value).toFixed(2);
+const isBlankRow = (row: ItemRow) => Object.values(row).every((v) => !v.trim());
 
 const EMPTY_SUPPLIER_FORM = { name: '', phoneNumber: '', email: '', address: '' };
 
@@ -45,6 +47,8 @@ export function SuppliersPage() {
   const supplier = useSupplier(selectedId);
   const record = useRecordDelivery();
   const createSupplier = useCreateSupplier();
+  const { data: products } = useProducts('Active');
+  const restock = useRestockProduct();
 
   const [showSupplierForm, setShowSupplierForm] = useState(false);
   const [supplierForm, setSupplierForm] = useState(EMPTY_SUPPLIER_FORM);
@@ -55,6 +59,33 @@ export function SuppliersPage() {
   const [purchaseDate, setPurchaseDate] = useState(today());
   const [rows, setRows] = useState<ItemRow[]>([{ ...EMPTY_ROW }]);
   const [formError, setFormError] = useState<string | null>(null);
+  const [productSearch, setProductSearch] = useState('');
+  // productId → quantity received (string while typing)
+  const [productQty, setProductQty] = useState<Map<number, string>>(new Map());
+
+  const filteredDeliveryProducts = useMemo(() => {
+    if (!products) return [];
+    const term = productSearch.trim().toLowerCase();
+    if (!term) return products;
+    return products.filter((p) =>
+      [p.name, p.category, p.brand ?? ''].some((field) => field.toLowerCase().includes(term)),
+    );
+  }, [products, productSearch]);
+
+  const phoneCount = rows.filter((row) => !isBlankRow(row)).length;
+  const productCount = [...productQty.values()].filter((v) => v.trim() !== '').length;
+
+  function setProductQuantity(productId: number, value: string) {
+    setProductQty((prev) => {
+      const next = new Map(prev);
+      if (value === '') {
+        next.delete(productId);
+      } else {
+        next.set(productId, value);
+      }
+      return next;
+    });
+  }
 
   function updateRow(index: number, patch: Partial<ItemRow>) {
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -85,7 +116,16 @@ export function SuppliersPage() {
     setFormError(null);
     if (selectedId === null) return;
 
-    for (const [i, row] of rows.entries()) {
+    // A completely blank phone row is ignored so products-only deliveries work
+    const phoneRows = rows.filter((row) => !isBlankRow(row));
+    const productEntries = [...productQty.entries()].filter(([, qty]) => qty.trim() !== '');
+
+    if (phoneRows.length === 0 && productEntries.length === 0) {
+      setFormError('Add at least one phone or one product quantity.');
+      return;
+    }
+
+    for (const [i, row] of phoneRows.entries()) {
       if (!/^\d{14,16}$/.test(row.imei.trim())) {
         setFormError(`Row ${i + 1}: IMEI must be 14-16 digits.`);
         return;
@@ -100,27 +140,43 @@ export function SuppliersPage() {
       }
     }
 
+    for (const [productId, qty] of productEntries) {
+      const quantity = Number(qty);
+      if (!Number.isInteger(quantity) || quantity < 1) {
+        const name = products?.find((p) => p.productId === productId)?.name ?? `#${productId}`;
+        setFormError(`${name}: quantity must be a whole number of at least 1.`);
+        return;
+      }
+    }
+
     try {
-      await record.mutateAsync({
-        supplierId: selectedId,
-        payload: {
-          invoiceNumber: invoiceNumber.trim() || undefined,
-          purchaseDate,
-          items: rows.map((row) => ({
-            imei: row.imei.trim(),
-            brand: row.brand.trim(),
-            model: row.model.trim(),
-            storage: row.storage.trim() || undefined,
-            color: row.color.trim() || undefined,
-            purchasePrice: Number(row.purchasePrice),
-            sellingPrice: Number(row.sellingPrice),
-          })),
-        },
-      });
+      if (phoneRows.length > 0) {
+        await record.mutateAsync({
+          supplierId: selectedId,
+          payload: {
+            invoiceNumber: invoiceNumber.trim() || undefined,
+            purchaseDate,
+            items: phoneRows.map((row) => ({
+              imei: row.imei.trim(),
+              brand: row.brand.trim(),
+              model: row.model.trim(),
+              storage: row.storage.trim() || undefined,
+              color: row.color.trim() || undefined,
+              purchasePrice: Number(row.purchasePrice),
+              sellingPrice: Number(row.sellingPrice),
+            })),
+          },
+        });
+      }
+      for (const [productId, qty] of productEntries) {
+        await restock.mutateAsync({ productId, quantity: Number(qty) });
+      }
       setShowForm(false);
       setInvoiceNumber('');
       setPurchaseDate(today());
       setRows([{ ...EMPTY_ROW }]);
+      setProductQty(new Map());
+      setProductSearch('');
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'Delivery failed');
     }
@@ -320,7 +376,7 @@ export function SuppliersPage() {
                             <Input
                               type="number"
                               min="0"
-                              step="0.01"
+                              step="1"
                               placeholder="Purchase price"
                               value={row.purchasePrice}
                               onChange={(e) => updateRow(index, { purchasePrice: e.target.value })}
@@ -328,7 +384,7 @@ export function SuppliersPage() {
                             <Input
                               type="number"
                               min="0"
-                              step="0.01"
+                              step="1"
                               placeholder="Selling price"
                               value={row.sellingPrice}
                               onChange={(e) => updateRow(index, { sellingPrice: e.target.value })}
@@ -353,9 +409,63 @@ export function SuppliersPage() {
                       </span>
                     </div>
 
+                    <div className="space-y-2 rounded-md border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-medium">Products received (optional)</span>
+                        <span className="text-xs text-muted-foreground">
+                          Restocks existing products — add brand-new ones on the Products page.
+                        </span>
+                      </div>
+                      <Input
+                        placeholder="Search products by name, category, or brand…"
+                        value={productSearch}
+                        onChange={(e) => setProductSearch(e.target.value)}
+                      />
+                      {filteredDeliveryProducts.length === 0 && (
+                        <p className="text-sm text-muted-foreground">No products match.</p>
+                      )}
+                      <div className="space-y-1">
+                        {filteredDeliveryProducts.map((product) => (
+                          <div
+                            key={product.productId}
+                            className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent"
+                          >
+                            <div>
+                              <span className="font-medium">{product.name}</span>{' '}
+                              <span className="text-xs text-muted-foreground">
+                                {product.category}
+                                {product.brand ? ` · ${product.brand}` : ''} ·{' '}
+                                {product.quantityInStock} in stock
+                              </span>
+                            </div>
+                            <Input
+                              type="number"
+                              min="1"
+                              step="1"
+                              placeholder="Qty"
+                              className="h-8 w-24 text-right"
+                              aria-label={`Quantity received of ${product.name}`}
+                              value={productQty.get(product.productId) ?? ''}
+                              onChange={(e) => setProductQuantity(product.productId, e.target.value)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
                     {formError && <p className="text-sm text-destructive">{formError}</p>}
-                    <Button className="w-full" disabled={record.isPending} onClick={submitDelivery}>
-                      {record.isPending ? 'Saving…' : `Save delivery (${rows.length} phone${rows.length === 1 ? '' : 's'})`}
+                    <Button
+                      className="w-full"
+                      disabled={record.isPending || restock.isPending}
+                      onClick={submitDelivery}
+                    >
+                      {record.isPending || restock.isPending
+                        ? 'Saving…'
+                        : `Save delivery (${phoneCount} phone${phoneCount === 1 ? '' : 's'}${
+                            productCount > 0
+                              ? `, ${productCount} product${productCount === 1 ? '' : 's'}`
+                              : ''
+                          })`}
                     </Button>
                   </CardContent>
                 </Card>

@@ -190,6 +190,9 @@ export interface ProfitRow {
 
 export interface ProfitReport {
   groupBy: ProfitGroupBy;
+  /** null = all-time */
+  from: string | null;
+  to: string | null;
   rows: ProfitRow[];
 }
 
@@ -230,8 +233,12 @@ export interface ReturnsReport {
     mode: 'return' | 'exchange';
     item: string;
     quantity: number;
+    /** Unit price the item originally sold for. */
+    soldFor: number;
     refundAmount: number;
     replacement: string | null;
+    /** Total price of the replacement line (exchanges only). */
+    replacementPrice: number | null;
     staff: string;
   }[];
 }

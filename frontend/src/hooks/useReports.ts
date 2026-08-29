@@ -6,6 +6,7 @@ import {
   fetchSalesReport,
   fetchSalesSeries,
   fetchSalesSplit,
+  type ProfitPeriod,
   type SalesPeriod,
 } from '@/services/report.service';
 import type { ProfitGroupBy } from '@/services/types';
@@ -42,10 +43,15 @@ export function useReturnsReport(from: string | undefined, to: string | undefine
   });
 }
 
-export function useProfitReport(groupBy: ProfitGroupBy, enabled: boolean) {
+export function useProfitReport(
+  groupBy: ProfitGroupBy,
+  period: ProfitPeriod,
+  param: string | undefined,
+  enabled: boolean,
+) {
   return useQuery({
-    queryKey: ['reports', 'profit', groupBy],
-    queryFn: () => fetchProfitReport(groupBy),
+    queryKey: ['reports', 'profit', groupBy, period, param ?? 'current'],
+    queryFn: () => fetchProfitReport(groupBy, period, param),
     enabled,
   });
 }

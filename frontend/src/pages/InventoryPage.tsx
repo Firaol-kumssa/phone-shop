@@ -164,7 +164,7 @@ export function InventoryPage() {
                   id="p-cost"
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="1"
                   value={form.purchasePrice}
                   onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })}
                 />
@@ -175,7 +175,7 @@ export function InventoryPage() {
                   id="p-price"
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="1"
                   value={form.sellingPrice}
                   onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })}
                 />

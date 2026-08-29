@@ -333,7 +333,7 @@ export function SalesPage() {
                             <Input
                               type="number"
                               min="0"
-                              step="0.01"
+                              step="1"
                               className="h-8 text-right"
                               value={selected.get(phone.phoneId)}
                               onChange={(e) => setPrice(phone.phoneId, e.target.value)}
@@ -422,7 +422,7 @@ export function SalesPage() {
                             <Input
                               type="number"
                               min="0"
-                              step="0.01"
+                              step="1"
                               className="h-8 text-right"
                               value={entry.price}
                               onChange={(e) =>

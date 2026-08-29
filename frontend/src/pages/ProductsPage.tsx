@@ -159,7 +159,7 @@ export function ProductsPage() {
                   id="p-cost"
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="1"
                   value={form.costPrice}
                   onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
                 />
@@ -170,7 +170,7 @@ export function ProductsPage() {
                   id="p-sell"
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="1"
                   value={form.sellingPrice}
                   onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })}
                 />

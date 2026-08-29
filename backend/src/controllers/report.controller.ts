@@ -37,8 +37,13 @@ export class ReportController {
 
   @Get('profit')
   @Roles(UserRole.Admin)
-  profit(@Query('groupBy') groupBy?: string): Promise<ProfitReport> {
-    return this.reportService.profitReport(groupBy);
+  profit(
+    @Query('groupBy') groupBy?: string,
+    @Query('period') period?: string,
+    @Query('date') date?: string,
+    @Query('month') month?: string,
+  ): Promise<ProfitReport> {
+    return this.reportService.profitReport(groupBy, period, period === 'monthly' ? month : date);
   }
 
   /** Last 7 buckets of the given period, oldest first — feeds the revenue/profit chart. */

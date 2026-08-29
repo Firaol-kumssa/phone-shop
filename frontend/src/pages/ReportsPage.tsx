@@ -32,6 +32,7 @@ import {
   useSalesSplit,
 } from '@/hooks/useReports';
 import type { SalesPeriod } from '@/services/report.service';
+import type { ProfitPeriod } from '@/services/report.service';
 import type { ProfitGroupBy } from '@/services/types';
 
 type Tab = SalesPeriod | 'bestsellers' | 'inventory';
@@ -48,6 +49,13 @@ const GROUP_BYS: { value: ProfitGroupBy; label: string }[] = [
   { value: 'model', label: 'By model' },
   { value: 'brand', label: 'By brand' },
   { value: 'staff', label: 'By staff' },
+];
+
+const PROFIT_PERIODS: { value: ProfitPeriod; label: string }[] = [
+  { value: 'all', label: 'All time' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
 ];
 
 const money = (value: number) => value.toFixed(2);
@@ -121,6 +129,9 @@ export function ReportsPage() {
   const [groupBy, setGroupBy] = useState<ProfitGroupBy>('model');
   const [sortBy, setSortBy] = useState<'unitsSold' | 'revenue'>('unitsSold');
   const [showReturnDetails, setShowReturnDetails] = useState(false);
+  const [bsPeriod, setBsPeriod] = useState<ProfitPeriod>('all');
+  const [bsDate, setBsDate] = useState('');
+  const [bsMonth, setBsMonth] = useState('');
 
   const isSalesTab = tab === 'daily' || tab === 'weekly' || tab === 'monthly';
   const period = isSalesTab ? tab : 'daily';
@@ -132,7 +143,12 @@ export function ReportsPage() {
     sales.data ? previousParam(period, sales.data.from) : undefined,
     isSalesTab && !!sales.data,
   );
-  const profit = useProfitReport(groupBy, tab === 'bestsellers');
+  const profit = useProfitReport(
+    groupBy,
+    bsPeriod,
+    bsPeriod === 'monthly' ? bsMonth || undefined : bsDate || undefined,
+    tab === 'bestsellers',
+  );
   const inventory = useInventoryReport(tab === 'inventory');
   const series = useSalesSeries(period, isSalesTab);
   const split = useSalesSplit(isSalesTab);
@@ -340,25 +356,41 @@ export function ReportsPage() {
                       <TableHead>Sale</TableHead>
                       <TableHead>Item</TableHead>
                       <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Sold for</TableHead>
+                      <TableHead className="text-right">Refund</TableHead>
                       <TableHead>Mode</TableHead>
                       <TableHead>Replacement</TableHead>
-                      <TableHead className="text-right">Refund</TableHead>
+                      <TableHead className="text-right">Net</TableHead>
                       <TableHead>Staff</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {returns.data.rows.map((row, index) => (
-                      <TableRow key={`${row.saleId}-${row.date}-${index}`}>
-                        <TableCell>{new Date(row.date).toLocaleString()}</TableCell>
-                        <TableCell>#{row.saleId}</TableCell>
-                        <TableCell className="font-medium">{row.item}</TableCell>
-                        <TableCell className="text-right">{row.quantity}</TableCell>
-                        <TableCell className="capitalize">{row.mode}</TableCell>
-                        <TableCell>{row.replacement ?? '—'}</TableCell>
-                        <TableCell className="text-right">{money(row.refundAmount)}</TableCell>
-                        <TableCell>{row.staff}</TableCell>
-                      </TableRow>
-                    ))}
+                    {returns.data.rows.map((row, index) => {
+                      const net = (row.replacementPrice ?? 0) - row.refundAmount;
+                      return (
+                        <TableRow key={`${row.saleId}-${row.date}-${index}`}>
+                          <TableCell>{new Date(row.date).toLocaleString()}</TableCell>
+                          <TableCell>#{row.saleId}</TableCell>
+                          <TableCell className="font-medium">{row.item}</TableCell>
+                          <TableCell className="text-right">{row.quantity}</TableCell>
+                          <TableCell className="text-right">{money(row.soldFor)}</TableCell>
+                          <TableCell className="text-right">{money(row.refundAmount)}</TableCell>
+                          <TableCell className="capitalize">{row.mode}</TableCell>
+                          <TableCell>
+                            {row.replacement
+                              ? `${row.replacement} — ${money(row.replacementPrice ?? 0)}`
+                              : '—'}
+                          </TableCell>
+                          <TableCell
+                            className={`text-right ${net < 0 ? 'text-destructive' : 'text-emerald-600'}`}
+                          >
+                            {net >= 0 ? '+' : ''}
+                            {money(net)}
+                          </TableCell>
+                          <TableCell>{row.staff}</TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -401,17 +433,62 @@ export function ReportsPage() {
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">Period</span>
+            <div className="flex gap-1">
+              {PROFIT_PERIODS.map((p) => (
+                <Button
+                  key={p.value}
+                  size="sm"
+                  variant={bsPeriod === p.value ? 'default' : 'outline'}
+                  onClick={() => setBsPeriod(p.value)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+            {bsPeriod === 'monthly' && (
+              <Input
+                type="month"
+                className="w-44"
+                value={bsMonth}
+                onChange={(e) => setBsMonth(e.target.value)}
+              />
+            )}
+            {(bsPeriod === 'daily' || bsPeriod === 'weekly') && (
+              <Input
+                type="date"
+                className="w-44"
+                value={bsDate}
+                onChange={(e) => setBsDate(e.target.value)}
+              />
+            )}
+            {bsPeriod !== 'all' && (
+              <span className="text-sm text-muted-foreground">
+                {profit.data?.from && profit.data?.to
+                  ? `${day(profit.data.from)} – ${day(profit.data.to)}`
+                  : 'Leave empty for the current period'}
+              </span>
+            )}
+          </div>
+
           {profit.isLoading && <p className="text-sm text-muted-foreground">Loading report…</p>}
           {profit.isError && <p className="text-sm text-destructive">{profit.error.message}</p>}
           {profit.data && (
             <Card>
               <CardHeader>
                 <CardTitle>Best sellers {GROUP_BYS.find((g) => g.value === groupBy)?.label.toLowerCase()}</CardTitle>
-                <CardDescription>All-time totals derived from recorded sale items.</CardDescription>
+                <CardDescription>
+                  {profit.data.from && profit.data.to
+                    ? `${day(profit.data.from)} – ${day(profit.data.to)} · derived from recorded sale items.`
+                    : 'All-time totals derived from recorded sale items.'}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {bestSellers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No sales recorded yet.</p>
+                  <p className="text-sm text-muted-foreground">
+                    No sales recorded {profit.data.from ? 'in this period' : 'yet'}.
+                  </p>
                 ) : (
                   <Table>
                     <TableHeader>

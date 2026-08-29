@@ -270,7 +270,7 @@ export function SalesHistory() {
                                     id={`replprice-${item.saleItemId}`}
                                     type="number"
                                     min="0"
-                                    step="0.01"
+                                    step="1"
                                     className="h-8 w-28"
                                     value={replacementPrice}
                                     onChange={(e) => setReplacementPrice(e.target.value)}

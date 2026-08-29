@@ -48,8 +48,12 @@ export interface ReturnsReport {
     mode: 'return' | 'exchange';
     item: string;
     quantity: number;
+    /** Unit price the item originally sold for. */
+    soldFor: number;
     refundAmount: number;
     replacement: string | null;
+    /** Total price of the replacement line (exchanges only). */
+    replacementPrice: number | null;
     staff: string;
   }[];
 }
@@ -58,6 +62,9 @@ export type ProfitGroupBy = 'model' | 'brand' | 'staff';
 
 export interface ProfitReport {
   groupBy: ProfitGroupBy;
+  /** null = all-time */
+  from: string | null;
+  to: string | null;
   rows: { key: string; unitsSold: number; revenue: number; profit: number }[];
 }
 
@@ -70,27 +77,39 @@ export class ReportService {
   constructor(private readonly prisma: PrismaService) {}
 
   dailyReport(date?: string): Promise<SalesReport> {
-    const start = this.parseDate(date);
-    return this.salesReport(start, this.addDays(start, 1));
+    const range = this.periodRange('daily', date);
+    return this.salesReport(range.from, range.to);
   }
 
   /** Week starts Monday; `date` may be any day within the week. */
   weeklyReport(date?: string): Promise<SalesReport> {
-    const day = this.parseDate(date);
-    const start = this.addDays(day, -((day.getDay() + 6) % 7));
-    return this.salesReport(start, this.addDays(start, 7));
+    const range = this.periodRange('weekly', date);
+    return this.salesReport(range.from, range.to);
   }
 
   monthlyReport(month?: string): Promise<SalesReport> {
-    if (month !== undefined && !/^\d{4}-\d{2}$/.test(month)) {
-      throw new BadRequestException('month must be YYYY-MM');
+    const range = this.periodRange('monthly', month);
+    return this.salesReport(range.from, range.to);
+  }
+
+  /** [from, to) for a daily/weekly/monthly bucket containing `param` (defaults to today). */
+  private periodRange(period: 'daily' | 'weekly' | 'monthly', param?: string): { from: Date; to: Date } {
+    if (period === 'monthly') {
+      if (param !== undefined && !/^\d{4}-\d{2}$/.test(param)) {
+        throw new BadRequestException('month must be YYYY-MM');
+      }
+      const now = new Date();
+      const [year, mon] = param
+        ? param.split('-').map(Number)
+        : [now.getFullYear(), now.getMonth() + 1];
+      return { from: new Date(year, mon - 1, 1), to: new Date(year, mon, 1) };
     }
-    const now = new Date();
-    const [year, mon] = month
-      ? month.split('-').map(Number)
-      : [now.getFullYear(), now.getMonth() + 1];
-    const start = new Date(year, mon - 1, 1);
-    return this.salesReport(start, new Date(year, mon, 1));
+    const day = this.parseDate(param);
+    if (period === 'daily') {
+      return { from: day, to: this.addDays(day, 1) };
+    }
+    const monday = this.addDays(day, -((day.getDay() + 6) % 7));
+    return { from: monday, to: this.addDays(monday, 7) };
   }
 
   /** The one shared query: totals over sales/sale_items in [from, to). */
@@ -232,15 +251,24 @@ export class ReportService {
     };
   }
 
-  /** Profit per model, brand, or staff member (Blueprint 3.5) — derived, never re-entered. */
-  async profitReport(groupBy?: string): Promise<ProfitReport> {
+  /** Profit per model, brand, or staff member (Blueprint 3.5) — derived, never re-entered.
+   *  Optionally scoped to a daily/weekly/monthly bucket; all-time when period is omitted. */
+  async profitReport(groupBy?: string, period?: string, param?: string): Promise<ProfitReport> {
     const grouping = (groupBy ?? 'model') as ProfitGroupBy;
     if (!['model', 'brand', 'staff'].includes(grouping)) {
       throw new BadRequestException('groupBy must be one of: model, brand, staff');
     }
+    let range: { from: Date; to: Date } | null = null;
+    if (period !== undefined && period !== 'all') {
+      if (!['daily', 'weekly', 'monthly'].includes(period)) {
+        throw new BadRequestException('period must be one of: all, daily, weekly, monthly');
+      }
+      range = this.periodRange(period as 'daily' | 'weekly' | 'monthly', param);
+    }
 
     // Single-shop volume is small (Blueprint 3.5) — aggregate in memory
     const items = await this.prisma.saleItem.findMany({
+      where: range ? { sale: { saleDate: { gte: range.from, lt: range.to } } } : undefined,
       select: {
         sellingPrice: true,
         profit: true,
@@ -273,6 +301,8 @@ export class ReportService {
 
     return {
       groupBy: grouping,
+      from: range?.from.toISOString() ?? null,
+      to: range?.to.toISOString() ?? null,
       rows: [...rows.values()].sort((a, b) => b.profit - a.profit),
     };
   }
@@ -363,8 +393,15 @@ export class ReportService {
         mode: (details.mode === 'exchange' ? 'exchange' : 'return') as 'return' | 'exchange',
         item: label(details.returned!),
         quantity: details.returned!.quantity,
+        soldFor:
+          details.returned!.quantity > 0
+            ? details.returned!.refundAmount / details.returned!.quantity
+            : details.returned!.refundAmount,
         refundAmount: details.returned!.refundAmount,
         replacement: details.replacement ? label(details.replacement) : null,
+        replacementPrice: details.replacement
+          ? details.replacement.sellingPrice * details.replacement.quantity
+          : null,
         staff: log.user?.username ?? 'unknown',
       }));
 

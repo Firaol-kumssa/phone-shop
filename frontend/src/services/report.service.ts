@@ -34,8 +34,19 @@ export function fetchReturnsReport(from?: string, to?: string): Promise<ReturnsR
   return api<ReturnsReport>(`/reports/returns${query ? `?${query}` : ''}`);
 }
 
-export function fetchProfitReport(groupBy: ProfitGroupBy): Promise<ProfitReport> {
-  return api<ProfitReport>(`/reports/profit?groupBy=${groupBy}`);
+export type ProfitPeriod = 'all' | SalesPeriod;
+
+export function fetchProfitReport(
+  groupBy: ProfitGroupBy,
+  period: ProfitPeriod,
+  param?: string,
+): Promise<ProfitReport> {
+  const params = new URLSearchParams({ groupBy });
+  if (period !== 'all') {
+    params.set('period', period);
+    if (param) params.set(period === 'monthly' ? 'month' : 'date', param);
+  }
+  return api<ProfitReport>(`/reports/profit?${params.toString()}`);
 }
 
 export function fetchInventoryReport(): Promise<InventoryReport> {
